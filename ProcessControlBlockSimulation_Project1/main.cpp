@@ -12,7 +12,7 @@ using namespace std;
 #include <fstream>
 #include <sstream>
 #include <queue>
-
+#include <limits>
 
 struct PCB
 {
@@ -61,12 +61,13 @@ int main() {
     cout << "main memory: " << main_memory << "\n";
     cout << "number of process: " << num_processes << "\n";
 
-    cin.ignore(); // Ignore leftover newline
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
 
     for (int i = 0; i < num_processes; i++) {
         string line;
         getline(cin, line);  // read entire process line
         istringstream ss(line);
+        cout << "Raw Line: " << line << endl;
 
         int cur_process_id, cur_process_max_memory_needed, cur_process_num_instructions;
         ss >> cur_process_id >> cur_process_max_memory_needed >> cur_process_num_instructions;
