@@ -2,7 +2,6 @@
 // Process Control Block Simulation Project 1
 // What is struct. 
 // ==================================================
-
 #include <iostream>
 using namespace std;
 #include <vector> 
@@ -17,7 +16,7 @@ using namespace std;
 struct PCB
 {
     int processID;
-    string state;        // "new", "ready", "run","terminated"
+    int state;        // "new", "ready", "run","terminated"
     int programCounter;  
     int instructionBase; 
     int dataBase;        
@@ -29,20 +28,32 @@ struct PCB
 
     vector<int> instructions;
 };
+void show_PCB(PCB process) {
+    cout << "Process ["<<process.processID<<"] " << "maxMemoryNeeded: " << process.maxMemoryNeeded << endl;
+}
 
 
-void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue,
- vector<int>& mainMemory, int maxMemory) {
- // TODO: Implement loading jobs into main memory
+/*
+First 10 address hold PCB metadata 10 fields.
+Next address contain all instructions opcodes for process. 
+Remaining addresses contain data associated with each of instructions in order (cycles, value, address, iterations)
+pcb.instructionBase points to the starting address of this isntruction segemnt in main memory
+pcb.dataBase points to the address where the data for each instruction starts 
+*/
+void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<int>& mainMemory, int maxMemory) {
+    // TODO: Implement loading jobs into main memory
+
+    while (!newJobQueue.empty()) {
+        PCB cur_process = newJobQueue.front();  // Access front element
+        show_PCB(cur_process);
+        newJobQueue.pop();  
+    }
 }
 
 
 void executeCPU(int startAddress, int* mainMemory) {
- // TODO: Implement CPU instruction execution
+    // TODO: Implement CPU instruction execution
 }
-
-
-
 
 
 /* 
@@ -54,25 +65,37 @@ int main() {
     // TODO: Implement input parsing and populate newJobQueue
     // iterate number of process and extract each
     // Step 1: Read and parse input file
-    int main_memory;
+    int maxMemory;
     int num_processes;
-    cin >> main_memory;
+    vector<int> mainMemory;
+    queue<int> readyQueue;
+    queue<PCB> newJobQueue;
+    cin >> maxMemory;
     cin >> num_processes;
-    cout << "main memory: " << main_memory << "\n";
+    cout << "main memory: " << maxMemory << "\n";
     cout << "number of process: " << num_processes << "\n";
+    mainMemory.resize(maxMemory, -1);
 
     cin.ignore(numeric_limits<streamsize>::max(), '\n');
-
     for (int i = 0; i < num_processes; i++) {
         string line;
         getline(cin, line);  // read entire process line
         istringstream ss(line);
-        cout << "Raw Line: " << line << endl;
+        //cout << "Raw Line: " << line << endl;
 
-        int cur_process_id, cur_process_max_memory_needed, cur_process_num_instructions;
-        ss >> cur_process_id >> cur_process_max_memory_needed >> cur_process_num_instructions;
+        int cur_process_id, cur_process_max_memory_needed, cur_process_num_instructions;  
+        ss >> cur_process_id >> cur_process_max_memory_needed >> cur_process_num_instructions;   // read in first 3 variables of process
 
-        cout << "CUR-PROCESS: ID: " << cur_process_id << " max_mem: " << cur_process_max_memory_needed << " num_instructions: " << cur_process_num_instructions << "\n";
+        PCB process;
+        process.processID = cur_process_id;
+        process.maxMemoryNeeded = cur_process_max_memory_needed;
+        process.state = 0; 
+        process.programCounter = 0;
+        process.memoryLimit = process.maxMemoryNeeded;
+        process.cpuCyclesUsed = 0;
+        process.registerValue = 0;
+        newJobQueue.push(process);  // push cur-pcb to new-job-queue
+        cout << "CUR-PROCESS: ID: " << process.processID << " max_mem: " << process.maxMemoryNeeded << " num_instructions: " << cur_process_num_instructions << "\n";
 
         vector<int> instructions;
         for (int j = 0; j < cur_process_num_instructions; j++) {
@@ -106,7 +129,7 @@ int main() {
 
     
     // Step 2: Load jobs into main memory
-    // loadJobsToMemory(newJobQueue, readyQueue, mainMemory, maxMemory);
+    loadJobsToMemory(newJobQueue, readyQueue, mainMemory, maxMemory);
 
 
 
