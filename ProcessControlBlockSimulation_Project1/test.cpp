@@ -13,7 +13,6 @@ using namespace std;
 #include <queue>
 #include <limits>
 
-
 struct PCB
 {
     int processID;       // identifer of process
@@ -27,27 +26,10 @@ struct PCB
     int maxMemoryNeeded; // max logical memory required by process as defined in input file
     int mainMemoryBase;  // starting address in main memory where process, PCB+logical_memory is laoded.  
 
-    vector<vector<int> > instructions; // each arr is a instruction, each element in vector is data assoicated with instruction, 1st element being opcode
+    vector<int> instructions;
 };
 void show_PCB(PCB process) {
-    cout << "PROCESS ["<<process.processID<<"] " << "maxMemoryNeeded: " << process.maxMemoryNeeded << endl;
-    cout << "num-instructions: " << process.instructions.size() << endl;
-    for (int i=0; i<process.instructions.size(); i++) {
-        vector<int> cur_instruction = process.instructions[i];
-        if (cur_instruction[0] == 1) { // compute
-            cout << "instruction: " << cur_instruction[0] << " iter: " << cur_instruction[1] << " cycles: " << cur_instruction[2] << endl;
-        }
-        if (cur_instruction[0] == 2) {
-            cout << "instruction: " << cur_instruction[0] << " cycles: " << cur_instruction[1] << endl;
-        }
-        if (cur_instruction[0] == 3) {
-            cout << "instruction: " << cur_instruction[0] << " value: " << cur_instruction[1] << " address: " << cur_instruction[2] << endl;
-        }
-        if (cur_instruction[0] == 4) {
-            cout << "instruction: " << cur_instruction[0] << " address: " << cur_instruction[1] << endl;
-        }
-        
-    }
+    cout << "Process ["<<process.processID<<"] " << "maxMemoryNeeded: " << process.maxMemoryNeeded << endl;
 }
 
 
@@ -113,47 +95,35 @@ int main() {
         process.memoryLimit = process.maxMemoryNeeded;
         process.cpuCyclesUsed = 0;
         process.registerValue = 0;
-        
-        //cout << "CUR-PROCESS: ID: " << process.processID << " max_mem: " << process.maxMemoryNeeded << " num_instructions: " << cur_process_num_instructions << "\n";
+        newJobQueue.push(process);  // push cur-pcb to new-job-queue
+        cout << "CUR-PROCESS: ID: " << process.processID << " max_mem: " << process.maxMemoryNeeded << " num_instructions: " << cur_process_num_instructions << "\n";
 
-        // just iterate instructions of each cur-process
+        vector<int> instructions;
         for (int j = 0; j < cur_process_num_instructions; j++) {
-            int instruction_opcode;  // read in opcode based on that read in data of instruction
+            int instruction_opcode;
             ss >> instruction_opcode;
-            vector<int> cur_instruction;  // instruction-arr for cur-instruction
-            cur_instruction.push_back(instruction_opcode); // add opcode as first element for this instruction-arr
 
             if (instruction_opcode == 1) { // compute
                 int iterations, cycles;
                 ss >> iterations >> cycles;
-                cur_instruction.push_back(iterations);
-                cur_instruction.push_back(cycles);
-                //cout << "instruction: " << instruction_opcode << " iter: " << iterations << " cycles: " << cycles << endl;
+                cout << "instruction: " << instruction_opcode << " iter: " << iterations << " cycles: " << cycles << endl;
             } 
             if (instruction_opcode == 2) {  // print
                 int cycles;
                 ss >> cycles;
-                cur_instruction.push_back(cycles);
-                //cout << "instruction: " << instruction_opcode << " cycles: " << cycles << endl;
+                cout << "instruction: " << instruction_opcode << " cycles: " << cycles << endl;
             } 
             if (instruction_opcode == 3) {   //store
                 int value, address;
                 ss >> value >> address;
-                cur_instruction.push_back(value);  
-                cur_instruction.push_back(address);
-                //cout << "instruction: " << instruction_opcode << " value: " << value << " address: " << address << endl;
+                cout << "instruction: " << instruction_opcode << " value: " << value << " address: " << address << endl;
             }
             if (instruction_opcode == 4) {  // load
                 int address;
                 ss >> address;
-                cur_instruction.push_back(address);
-                //cout << "instruction: " << instruction_opcode << " address: " << address << endl;
+                cout << "instruction: " << instruction_opcode << " address: " << address << endl;
             }
-            //cout << "cur-instruction size: " << cur_instruction.size() << endl;
-            process.instructions.push_back(cur_instruction);
         }
-        // push cur-pcb to new-job-queue
-        newJobQueue.push(process);  
     }
 
     
