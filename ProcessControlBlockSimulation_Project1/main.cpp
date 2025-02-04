@@ -62,10 +62,61 @@ Add pcb start address to readyQueue.
 void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<int>& mainMemory, int maxMemory) {
     // TODO: Implement loading jobs into main memory, store process meta data and instructions
 
+    int cur_address = 0;
     while (!newJobQueue.empty()) {
         PCB cur_process = newJobQueue.front();  // Access front element
-        show_PCB(cur_process);
+        show_PCB(cur_process); 
         newJobQueue.pop();  
+
+        cur_process.mainMemoryBase = cur_address;
+        cur_process.instructionBase = cur_address + 10; 
+        cur_process.dataBase = cur_process.instructionBase + cur_process.instructions.size();
+
+        mainMemory[cur_address] = cur_process.processID;
+        mainMemory[cur_address + 1] = 1;
+        mainMemory[cur_address + 2] = cur_process.programCounter;
+        mainMemory[cur_address + 3] = cur_process.instructionBase;
+        mainMemory[cur_address + 4] = cur_process.dataBase;
+        mainMemory[cur_address + 5] = cur_process.memoryLimit;
+        mainMemory[cur_address + 6] = cur_process.cpuCyclesUsed;
+        mainMemory[cur_address + 7] = cur_process.registerValue;
+        mainMemory[cur_address + 8] = cur_process.maxMemoryNeeded;
+        mainMemory[cur_address + 9] = cur_process.mainMemoryBase;
+
+        int num_instructions = cur_process.instructions.size();
+        //cout << "num-instructions for job: " << num_instructions << endl;
+        //cout << "size of main memory: " << mainMemory.size() << endl;
+
+        int instructionAddress = cur_process.instructionBase;
+        int dataAddress = cur_process.dataBase;
+        for (int i=0; i<num_instructions; i++) {
+            vector<int> cur_instruction = cur_process.instructions[i];
+            int opcode = cur_instruction[0];
+           
+            mainMemory[instructionAddress++] = opcode; // access then post-increment 
+            if (opcode == 1) {  // compute
+                //cout << "FLAG1: "<< cur_instruction.size() << endl;
+                mainMemory[dataAddress++] = cur_instruction[1];
+                mainMemory[dataAddress++] = cur_instruction[2];
+            }
+            else if (opcode == 2) {  // print
+                mainMemory[dataAddress++] = cur_instruction[1];
+                //cout << "FLAG4" << endl;
+            }
+            else if (opcode == 3) {  // store
+                mainMemory[dataAddress++] = cur_instruction[1];
+                mainMemory[dataAddress++] = cur_instruction[2];
+                //cout << "FLAG5" << endl;
+            }
+            else if (opcode == 4) {  // load
+                mainMemory[dataAddress++] = cur_instruction[1];
+                //cout << "FLAG6" << endl;
+            }
+        }
+        cur_address += (10 + cur_process.memoryLimit);
+        readyQueue.push(cur_process.mainMemoryBase);
+
+        
     }
 }
 
@@ -75,6 +126,14 @@ void executeCPU(int startAddress, int* mainMemory) {
 }
 
 
+
+
+void show_main_memory(vector<int> &mainMemory, int rows) {
+    for (int i = 0; i < rows; i++){
+        cout << i << ": " << mainMemory[i] << endl;
+    }
+    cout << endl;
+}
 /* 
 Compile: g++ -o main main.cpp
 Run: ./main < input1.txt
@@ -163,15 +222,11 @@ int main() {
     loadJobsToMemory(newJobQueue, readyQueue, mainMemory, maxMemory);
 
 
-
-
-
     // Step 3: After you load the jobs in the queue go over the main memory
     // and print the content of mainMemory. It will be in the table format
     // three columns as I had provided you earlier.
-
-
-
+    cout << "Main Memory After Loading Processes:" << endl;
+    show_main_memory(mainMemory, 500);
 
 
 
