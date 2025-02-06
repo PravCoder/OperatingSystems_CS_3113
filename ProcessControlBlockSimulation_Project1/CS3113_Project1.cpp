@@ -64,7 +64,7 @@ void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<in
 
     int cur_address = 0;
     while (!newJobQueue.empty()) {
-        PCB cur_process = newJobQueue.front();  // Access front element
+        PCB cur_process = newJobQueue.front();  // access front element
         show_PCB(cur_process); 
         newJobQueue.pop();  
 
@@ -113,7 +113,7 @@ void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<in
                 //cout << "FLAG6" << endl;
             }
         }
-        cur_address += (10 + cur_process.memoryLimit);
+        cur_address = cur_process.instructionBase + cur_process.maxMemoryNeeded;  // change next process jump formula
         readyQueue.push(cur_process.mainMemoryBase);
 
         
@@ -121,8 +121,10 @@ void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<in
 }
 
 
-void executeCPU(int startAddress, int* mainMemory) {
+void executeCPU(queue<int> &readyQueue, vector<int> &mainMemory) {
     // TODO: Implement CPU instruction execution
+    // iterate every process-start-address in main-memory
+
 }
 
 
@@ -134,10 +136,8 @@ void show_main_memory(vector<int> &mainMemory, int rows) {
     }
     cout << endl;
 }
-/* 
-Compile: g++ -o main main.cpp
-Run: ./main < input1.txt
-*/
+
+
 int main() {
     // Step 1: Read and parse input file
     // TODO: Implement input parsing and populate newJobQueue
@@ -150,8 +150,8 @@ int main() {
     queue<PCB> newJobQueue;
     cin >> maxMemory;
     cin >> num_processes;
-    cout << "main memory: " << maxMemory << "\n";
-    cout << "number of process: " << num_processes << "\n";
+    //cout << "main memory: " << maxMemory << "\n";
+    //cout << "number of process: " << num_processes << "\n";
     mainMemory.resize(maxMemory, -1);
 
     cin.ignore(numeric_limits<streamsize>::max(), '\n');
@@ -225,7 +225,8 @@ int main() {
     // Step 3: After you load the jobs in the queue go over the main memory
     // and print the content of mainMemory. It will be in the table format
     // three columns as I had provided you earlier.
-    cout << "Main Memory After Loading Processes:" << endl;
+
+    // cout << "Main Memory After Loading Processes:" << endl;
     show_main_memory(mainMemory, 500);
 
 
@@ -240,8 +241,15 @@ int main() {
     // // Output Job that just completed execution – see example below
     // }
 
+    //executeCPU(readyQueue, mainMemory);
 
 
 
     return 0;
 }
+
+
+/* 
+g++ -o CS3113_Project1 CS3113_Project1.cpp
+./CS3113_Project1  < input1.txt
+*/

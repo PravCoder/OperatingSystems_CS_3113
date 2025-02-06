@@ -1,162 +1,186 @@
-// ==================================================
-// Process Control Block Simulation Project 1
-// What is struct. 
-// ==================================================
 #include <iostream>
-using namespace std;
-#include <vector> 
-#include <string>
-#include <vector>
-#include <string>
 #include <fstream>
-#include <sstream>
+#include <vector>
 #include <queue>
-#include <limits>
+#include <sstream>
+#include <unistd.h>
+#include <sys/wait.h>
 
-struct PCB
-{
-    int processID;       // identifer of process
-    int state;        // "new", "ready", "run","terminated"
-    int programCounter;  // index of next instruction to be executed, in logical memory
-    int instructionBase; // starting address of instructions for this process
-    int dataBase;        // address where the data for the instructions starts in logical memory
-    int memoryLimit;     // total size of logical memory allocated to the process    
-    int cpuCyclesUsed;   // number of cpu cycles process as consumed so far
-    int registerValue;   // value of cpu register associated with process
-    int maxMemoryNeeded; // max logical memory required by process as defined in input file
-    int mainMemoryBase;  // starting address in main memory where process, PCB+logical_memory is laoded.  
+using namespace std;
 
-    vector<int> instructions;
+// Simulated process structure
+struct SimulatedProcess {
+    int pid;            // Process ID
+    int ppid;           // Parent Process ID
+    int value;          // Integer value
+    int pc;             // Program counter
+    vector<string> program;  // Instruction program
+    bool blocked;       // Blocked state
+    bool terminated;    // Termination state
 };
-void show_PCB(PCB process) {
-    cout << "Process ["<<process.processID<<"] " << "maxMemoryNeeded: " << process.maxMemoryNeeded << endl;
-}
 
+// Process Manager class
+class ProcessManager {
+private:
+    vector<SimulatedProcess> processes;  // Array of simulated processes
+    queue<int> readyQueue;               // Queue of ready processes
+    queue<int> blockedQueue;             // Queue of blocked processes
+    int runningProcessIdx;               // Index of currently running process
 
-/*
-First 10 address hold PCB metadata 10 fields.
-Next address contain all instructions opcodes for process. 
-Remaining addresses contain data associated with each of instructions in order (cycles, value, address, iterations)
-pcb.instructionBase points to the starting address of this isntruction segemnt in main memory
-pcb.dataBase points to the address where the data for each instruction starts.
-Add pcb start address to readyQueue. 
-*/
-void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<int>& mainMemory, int maxMemory) {
-    // TODO: Implement loading jobs into main memory, store process meta data and instructions
+public:
+    ProcessManager() : runningProcessIdx(-1) {}
 
-    while (!newJobQueue.empty()) {
-        PCB cur_process = newJobQueue.front();  // Access front element
-        show_PCB(cur_process);
-        newJobQueue.pop();  
-    }
-}
-
-
-void executeCPU(int startAddress, int* mainMemory) {
-    // TODO: Implement CPU instruction execution
-}
-
-
-/* 
-Compile: g++ -o main main.cpp
-Run: ./main < input1.txt
-*/
-int main() {
-    // Step 1: Read and parse input file
-    // TODO: Implement input parsing and populate newJobQueue
-    // iterate number of process and extract each
-    // Step 1: Read and parse input file
-    int maxMemory;
-    int num_processes;
-    vector<int> mainMemory;
-    queue<int> readyQueue;
-    queue<PCB> newJobQueue;
-    cin >> maxMemory;
-    cin >> num_processes;
-    cout << "main memory: " << maxMemory << "\n";
-    cout << "number of process: " << num_processes << "\n";
-    mainMemory.resize(maxMemory, -1);
-
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    for (int i = 0; i < num_processes; i++) {
-        string line;
-        getline(cin, line);  // read entire process line
-        istringstream ss(line);
-        //cout << "Raw Line: " << line << endl;
-
-        int cur_process_id, cur_process_max_memory_needed, cur_process_num_instructions;  
-        ss >> cur_process_id >> cur_process_max_memory_needed >> cur_process_num_instructions;   // read in first 3 variables of process
-
-        PCB process;
-        process.processID = cur_process_id;
-        process.maxMemoryNeeded = cur_process_max_memory_needed;
-        process.state = 0; 
-        process.programCounter = 0;
-        process.memoryLimit = process.maxMemoryNeeded;
-        process.cpuCyclesUsed = 0;
-        process.registerValue = 0;
-        newJobQueue.push(process);  // push cur-pcb to new-job-queue
-        cout << "CUR-PROCESS: ID: " << process.processID << " max_mem: " << process.maxMemoryNeeded << " num_instructions: " << cur_process_num_instructions << "\n";
-
-        vector<int> instructions;
-        for (int j = 0; j < cur_process_num_instructions; j++) {
-            int instruction_opcode;
-            ss >> instruction_opcode;
-
-            if (instruction_opcode == 1) { // compute
-                int iterations, cycles;
-                ss >> iterations >> cycles;
-                cout << "instruction: " << instruction_opcode << " iter: " << iterations << " cycles: " << cycles << endl;
-            } 
-            if (instruction_opcode == 2) {  // print
-                int cycles;
-                ss >> cycles;
-                cout << "instruction: " << instruction_opcode << " cycles: " << cycles << endl;
-            } 
-            if (instruction_opcode == 3) {   //store
-                int value, address;
-                ss >> value >> address;
-                cout << "instruction: " << instruction_opcode << " value: " << value << " address: " << address << endl;
+    // Load program from file into a simulated process
+    void loadProgramFromFile(const string& filename, SimulatedProcess& process) {
+        ifstream file(filename);
+        if (file.is_open()) {
+            string line;
+            while (getline(file, line)) {
+                process.program.push_back(line);
             }
-            if (instruction_opcode == 4) {  // load
-                int address;
-                ss >> address;
-                cout << "instruction: " << instruction_opcode << " address: " << address << endl;
-            }
+            file.close();
         }
     }
 
-    
+    // Create the initial process
+    void createInitialProcess(const string& filename) {
+        SimulatedProcess initialProcess;
+        initialProcess.pid = 0;
+        initialProcess.ppid = -1; // No parent for the initial process
+        initialProcess.value = 0;
+        initialProcess.pc = 0;
+        initialProcess.blocked = false;
+        initialProcess.terminated = false;
+        loadProgramFromFile(filename, initialProcess);
+        processes.push_back(initialProcess);
+        readyQueue.push(initialProcess.pid);
+    }
 
-    
-    // Step 2: Load jobs into main memory
-    loadJobsToMemory(newJobQueue, readyQueue, mainMemory, maxMemory);
+    // Execute next instruction of a process
+    void executeNextInstruction(SimulatedProcess& process) {
+        if (process.pc < process.program.size()) {
+            string instruction = process.program[process.pc];
+            istringstream iss(instruction);
+            string opcode;
+            iss >> opcode;
+            
+            if (opcode == "S") {
+                int value;
+                iss >> value;
+                process.value = value;
+            } else if (opcode == "A") {
+                int value;
+                iss >> value;
+                process.value += value;
+            } else if (opcode == "D") {
+                int value;
+                iss >> value;
+                process.value -= value;
+            } else if (opcode == "B") {
+                process.blocked = true;
+                readyQueue.pop(); // Remove from ready queue
+                blockedQueue.push(process.pid); // Add to blocked queue
+            } else if (opcode == "E") {
+                process.terminated = true;
+                readyQueue.pop(); // Remove from ready queue
+            }
+            
+            process.pc++; // Move to next instruction
+        }
+    }
 
+    // Schedule the next process to run
+    void schedule() {
+        if (runningProcessIdx != -1) {
+            SimulatedProcess& runningProcess = processes[runningProcessIdx];
+            executeNextInstruction(runningProcess);
 
+            // Check if process should be unblocked
+            if (runningProcess.blocked) {
+                runningProcess.blocked = false;
+                blockedQueue.pop(); // Remove from blocked queue
+                readyQueue.push(runningProcess.pid); // Add back to ready queue
+            }
 
+            // Check if process should be terminated
+            if (runningProcess.terminated) {
+                runningProcessIdx = -1; // No process running
+            }
+        }
 
+        if (runningProcessIdx == -1 && !readyQueue.empty()) {
+            // Get the next process from the ready queue to run
+            runningProcessIdx = readyQueue.front();
+            readyQueue.pop();
+        }
+    }
 
-    // Step 3: After you load the jobs in the queue go over the main memory
-    // and print the content of mainMemory. It will be in the table format
-    // three columns as I had provided you earlier.
+    // Print current system state
+    void printState() const {
+        cout << "****************************************************************" << endl;
+        cout << "The current system state is as follows:" << endl;
+        cout << "****************************************************************" << endl;
+        cout << "CURRENT TIME: <time>" << endl;
 
+        // Print running process (if any)
+        if (runningProcessIdx != -1) {
+            const SimulatedProcess& runningProcess = processes[runningProcessIdx];
+            cout << "RUNNING PROCESS:" << endl;
+            cout << "pid: " << runningProcess.pid << ", ppid: " << runningProcess.ppid
+                 << ", value: " << runningProcess.value << ", pc: " << runningProcess.pc
+                 << ", blocked: " << (runningProcess.blocked ? "Yes" : "No")
+                 << ", terminated: " << (runningProcess.terminated ? "Yes" : "No") << endl;
+        }
 
+        // Print blocked processes
+        if (!blockedQueue.empty()) {
+            cout << "BLOCKED PROCESSES:" << endl;
+            queue<int> blockedCopy = blockedQueue;
+            while (!blockedCopy.empty()) {
+                int idx = blockedCopy.front();
+                const SimulatedProcess& blockedProcess = processes[idx];
+                cout << "pid: " << blockedProcess.pid << ", ppid: " << blockedProcess.ppid
+                     << ", value: " << blockedProcess.value << ", pc: " << blockedProcess.pc
+                     << ", blocked: " << (blockedProcess.blocked ? "Yes" : "No")
+                     << ", terminated: " << (blockedProcess.terminated ? "Yes" : "No") << endl;
+                blockedCopy.pop();
+            }
+        }
 
+        // Print ready processes (grouped by priority)
+        cout << "PROCESSES READY TO EXECUTE:" << endl;
+        // Implement priority-based queue processing (not shown in this simplified example)
+        cout << "****************************************************************" << endl;
+    }
+};
 
+int main() {
+    ProcessManager manager;
 
+    // Create the initial process with program loaded from file "init"
+    manager.createInitialProcess("init");
 
-    // // Step 4: Process execution
-    // while (!readyQueue.empty()) {
-    // int startAddress = readyQueue.front();
-    // //readyQueue contains start addresses w.r.t main memory for jobs
-    // readyQueue.pop();
-    // // Execute job
-    // executeCPU(startAddress, mainMemory);
-    // // Output Job that just completed execution – see example below
-    // }
+    char command;
+    while (true) {
+        cout << "Enter command (P to print state, Q to quit): ";
+        cin >> command;
 
+        // Convert command to uppercase for case-insensitive comparison
+        command = toupper(command);
 
+        if (command == 'P') {
+            manager.printState();
+        } else if (command == 'Q') {
+            break;  // Exit the loop and terminate the program
+        } else {
+            cout << "Invalid command. Please try again." << endl;
+        }
 
+        // Simulate process scheduling after each command (not shown in this simplified example)
+        // manager.schedule();
+    }
 
     return 0;
 }
+// g++ -o test test.cpp
+// ./test < input1.txt

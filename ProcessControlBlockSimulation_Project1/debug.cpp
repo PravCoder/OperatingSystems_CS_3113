@@ -92,6 +92,7 @@ void executeCPU(queue<int> &readyQueue, vector<int> &mainMemory)
 
         while (programCounter < dataBase)
         {
+            cout << "pc: " << programCounter << " database: " << dataBase << endl;
             int opCode = mainMemory[programCounter];
 
             if (opCode == 1) // Compute
@@ -201,7 +202,10 @@ int main()
 
     cout << endl << endl;
 
-    // executeCPU(readyQueue, mainMemory);
-    // print_memory(mainMemory);
+    executeCPU(readyQueue, mainMemory);
+    print_memory(mainMemory);
     return 0;
 }
+
+// g++ -o debug debug.cpp
+// ./debug < input1.txt
