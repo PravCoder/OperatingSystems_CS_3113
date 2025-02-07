@@ -12,6 +12,8 @@ using namespace std;
 #include <sstream>
 #include <queue>
 #include <limits>
+#include <fstream> 
+#include <cstdio>
 
 
 struct PCB
@@ -114,7 +116,7 @@ void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<in
             }
         }
         cur_address = cur_process.instructionBase + cur_process.maxMemoryNeeded;  // change next process jump formula
-        readyQueue.push(cur_process.mainMemoryBase);
+        readyQueue.push(cur_process.mainMemoryBase);  // add the base-address of process to readQueue
 
         
     }
@@ -124,7 +126,67 @@ void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<in
 void executeCPU(queue<int> &readyQueue, vector<int> &mainMemory) {
     // TODO: Implement CPU instruction execution
     // iterate every process-start-address in main-memory
+    while (!readyQueue.empty()) {
+        int base_address = readyQueue.front();
+        readyQueue.pop();   
 
+        int instruction_base_logical_memory = base_address+3;
+        int database_logical_memory = base_address + 4;
+        int cpu_cycles_used_logical_memory = base_address + 6;
+
+        int instructionBase = mainMemory[instruction_base_logical_memory];  // TBD: copies of these fields, reset these in main
+        int dataBase = mainMemory[database_logical_memory];                 // memory after modifying them
+        int programCounter = instructionBase;
+        int cpuCyclesUsed = mainMemory[cpu_cycles_used_logical_memory];
+        int registerValue = 0;
+
+        while (programCounter < dataBase) {
+            int opcode =  mainMemory[programCounter];
+            cout << "opcode: " << opcode << endl;
+
+            if (opcode == 1) {
+                int iterations = mainMemory[dataBase + (programCounter - instructionBase)];
+                int cycles = mainMemory[dataBase +(programCounter - instructionBase) + 1];
+                cpuCyclesUsed += iterations * cycles;
+                programCounter += 3; // cause opcode+iter+cycles move 3 positions
+                cout << "compute" << endl;
+            }
+            else if (opcode == 2) {
+                programCounter += 2;
+                cout << "print" << endl;
+            }
+            else if (opcode == 3) {
+                int value = mainMemory[dataBase + (programCounter - instructionBase) ];
+                int address = mainMemory[dataBase +(programCounter - instructionBase) + 1];
+                mainMemory[dataBase + address] = value;
+                programCounter += 3;
+                cout << "store" << endl;
+
+            }
+            else if (opcode == 4) {
+                int address = mainMemory[dataBase + (programCounter - instructionBase)];
+                registerValue = mainMemory[dataBase + address];
+                programCounter += 2;
+                cout << "load" << endl;
+            }
+            else {
+                cout << "invalid instruction lil bro" << endl;
+            }
+        }
+        //mainMemory[base_address + 1] = 3; // TERMINATED
+        cout << "Process ID: " << mainMemory[base_address] << endl;
+        cout << "State: TERMINATED" << endl;
+        cout << "Program Counter: " << programCounter << endl;
+        cout << "Instruction Base: " << instructionBase << endl;
+        cout << "Data Base: " << dataBase << endl;
+        cout << "Memory Limit: " << mainMemory[base_address + 5] << endl;
+        cout << "CPU Cycles Used: " << cpuCyclesUsed << endl;
+        cout << "Register Value: " << registerValue << endl;
+        cout << "Max Memory Needed: " << mainMemory[base_address + 8] << endl;
+        cout << "Main Memory Base: " << mainMemory[base_address + 9] << endl;
+        cout << "Total CPU Cycles Consumed: " << cpuCyclesUsed << endl;
+
+    }
 }
 
 
@@ -226,8 +288,8 @@ int main() {
     // and print the content of mainMemory. It will be in the table format
     // three columns as I had provided you earlier.
 
-    // cout << "Main Memory After Loading Processes:" << endl;
-    show_main_memory(mainMemory, 500);
+    cout << "Main Memory After Loading Processes:" << endl;
+    show_main_memory(mainMemory, 400);
 
 
 
@@ -241,8 +303,9 @@ int main() {
     // // Output Job that just completed execution – see example below
     // }
 
-    //executeCPU(readyQueue, mainMemory);
-
+    executeCPU(readyQueue, mainMemory);
+    cout << "Main Memory After Executing Processes:" << endl;
+    show_main_memory(mainMemory, 500);
 
 
     return 0;
