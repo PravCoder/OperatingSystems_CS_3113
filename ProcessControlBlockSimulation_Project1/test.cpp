@@ -1,186 +1,140 @@
-#include <iostream>
-#include <fstream>
-#include <vector>
-#include <queue>
-#include <sstream>
-#include <unistd.h>
-#include <sys/wait.h>
+void executeCPU(int startAddress, vector<int>&  mainMemory) {
+    // extract attributes of pcb from main memory
+    int processID = mainMemory[startAddress];
+    int state = mainMemory[startAddress + 1];
+    int programCounter = mainMemory[startAddress + 2];
+    int instructionBase = mainMemory[startAddress + 3];
+    int dataBase = mainMemory[startAddress + 4];
+    int memoryLimit = mainMemory[startAddress + 5];
+    int cpuCyclesUsed = mainMemory[startAddress + 6];
+    int registerValue = mainMemory[startAddress + 7];
+    int maxMemoryNeeded = mainMemory[startAddress + 8];
+    int mainMemoryBase = mainMemory[startAddress + 9];
 
-using namespace std;
+    // Calculate number of opcodes and data segment size
+    int numOpcodes = dataBase - instructionBase;
+    int dataSize = memoryLimit - numOpcodes;
 
-// Simulated process structure
-struct SimulatedProcess {
-    int pid;            // Process ID
-    int ppid;           // Parent Process ID
-    int value;          // Integer value
-    int pc;             // Program counter
-    vector<string> program;  // Instruction program
-    bool blocked;       // Blocked state
-    bool terminated;    // Termination state
-};
+    // Parameter extraction index within the data segment
+    int paramIdx = 0;
 
-// Process Manager class
-class ProcessManager {
-private:
-    vector<SimulatedProcess> processes;  // Array of simulated processes
-    queue<int> readyQueue;               // Queue of ready processes
-    queue<int> blockedQueue;             // Queue of blocked processes
-    int runningProcessIdx;               // Index of currently running process
+    // iterate through opcodes
+    for (int i = 0; programCounter < numOpcodes; i++) {
+        int opcode = mainMemory[instructionBase + i];
+        vector<int> params;
 
-public:
-    ProcessManager() : runningProcessIdx(-1) {}
-
-    // Load program from file into a simulated process
-    void loadProgramFromFile(const string& filename, SimulatedProcess& process) {
-        ifstream file(filename);
-        if (file.is_open()) {
-            string line;
-            while (getline(file, line)) {
-                process.program.push_back(line);
+        // Extract parameters based on opcode type
+        // COMPUTE - has 2 arguments
+        if (opcode == 1) {
+            if (paramIdx + 1 >= dataSize) {
+                params.push_back(-1);
+                params.push_back(-1);
+            } else {
+                params.push_back(mainMemory[dataBase + paramIdx]);
+                params.push_back(mainMemory[dataBase + paramIdx + 1]);
             }
-            file.close();
+            paramIdx += 2;
         }
-    }
-
-    // Create the initial process
-    void createInitialProcess(const string& filename) {
-        SimulatedProcess initialProcess;
-        initialProcess.pid = 0;
-        initialProcess.ppid = -1; // No parent for the initial process
-        initialProcess.value = 0;
-        initialProcess.pc = 0;
-        initialProcess.blocked = false;
-        initialProcess.terminated = false;
-        loadProgramFromFile(filename, initialProcess);
-        processes.push_back(initialProcess);
-        readyQueue.push(initialProcess.pid);
-    }
-
-    // Execute next instruction of a process
-    void executeNextInstruction(SimulatedProcess& process) {
-        if (process.pc < process.program.size()) {
-            string instruction = process.program[process.pc];
-            istringstream iss(instruction);
-            string opcode;
-            iss >> opcode;
-            
-            if (opcode == "S") {
-                int value;
-                iss >> value;
-                process.value = value;
-            } else if (opcode == "A") {
-                int value;
-                iss >> value;
-                process.value += value;
-            } else if (opcode == "D") {
-                int value;
-                iss >> value;
-                process.value -= value;
-            } else if (opcode == "B") {
-                process.blocked = true;
-                readyQueue.pop(); // Remove from ready queue
-                blockedQueue.push(process.pid); // Add to blocked queue
-            } else if (opcode == "E") {
-                process.terminated = true;
-                readyQueue.pop(); // Remove from ready queue
+        // STORE - has 2 arguments
+        else if (opcode == 3) {
+            if (paramIdx + 1 >= dataSize) {
+                params.push_back(-1);
+                params.push_back(-1);
+            } else {
+                params.push_back(mainMemory[dataBase + paramIdx]);
+                params.push_back(mainMemory[dataBase + paramIdx + 1]);
             }
-            
-            process.pc++; // Move to next instruction
+            paramIdx += 2;
         }
-    }
+        // PRINT - has 1 argument
+        else if (opcode == 2) {
+            if (paramIdx >= dataSize) {
+                params.push_back(-1);
+            } else {
+                params.push_back(mainMemory[dataBase + paramIdx]);
+            }
+            paramIdx += 1;
+        }
+        // LOAD - has 1 argument
+        else if (opcode == 4) {
+            if (paramIdx >= dataSize) {
+                params.push_back(-1);
+            } else {
+                params.push_back(mainMemory[dataBase + paramIdx]);
+            }
+            paramIdx += 1;
+        }
 
-    // Schedule the next process to run
-    void schedule() {
-        if (runningProcessIdx != -1) {
-            SimulatedProcess& runningProcess = processes[runningProcessIdx];
-            executeNextInstruction(runningProcess);
-
-            // Check if process should be unblocked
-            if (runningProcess.blocked) {
-                runningProcess.blocked = false;
-                blockedQueue.pop(); // Remove from blocked queue
-                readyQueue.push(runningProcess.pid); // Add back to ready queue
+        // process each instruction opcode
+        switch (opcode) {
+            case 1: // COMPUTE
+            {
+                cpuCyclesUsed += params[1];
+                cout << "compute" << "\n";
+                break;
             }
 
-            // Check if process should be terminated
-            if (runningProcess.terminated) {
-                runningProcessIdx = -1; // No process running
+            case 2: // PRINT
+            {
+                cpuCyclesUsed += params[0];
+                cout << "print" << "\n";
+                break;
             }
-        }
 
-        if (runningProcessIdx == -1 && !readyQueue.empty()) {
-            // Get the next process from the ready queue to run
-            runningProcessIdx = readyQueue.front();
-            readyQueue.pop();
-        }
-    }
+            case 3: // STORE
+            {
+                if (params[1] + instructionBase >= instructionBase &&
+                    (params[1] + instructionBase) < maxMemoryNeeded + instructionBase) {
+                    mainMemory[params[1] + instructionBase] = params[0];
+                    registerValue = params[0];
+                    cout << "stored" << "\n";
+                } else {
+                    registerValue = params[0];
+                    cout << "store error!" << "\n";
+                }
+                cpuCyclesUsed++;
+                break;
+            }
 
-    // Print current system state
-    void printState() const {
-        cout << "****************************************************************" << endl;
-        cout << "The current system state is as follows:" << endl;
-        cout << "****************************************************************" << endl;
-        cout << "CURRENT TIME: <time>" << endl;
+            case 4: // LOAD
+            {
+                if ((params[0] + instructionBase) >= instructionBase &&
+                    (params[0] + instructionBase) < (maxMemoryNeeded + instructionBase)) {
+                    registerValue = mainMemory[params[0] + instructionBase];
+                    cout << "loaded" << "\n";
+                } else {
+                    cout << "load error!" << "\n";
+                }
+                cpuCyclesUsed++;
+                break;
+            }
 
-        // Print running process (if any)
-        if (runningProcessIdx != -1) {
-            const SimulatedProcess& runningProcess = processes[runningProcessIdx];
-            cout << "RUNNING PROCESS:" << endl;
-            cout << "pid: " << runningProcess.pid << ", ppid: " << runningProcess.ppid
-                 << ", value: " << runningProcess.value << ", pc: " << runningProcess.pc
-                 << ", blocked: " << (runningProcess.blocked ? "Yes" : "No")
-                 << ", terminated: " << (runningProcess.terminated ? "Yes" : "No") << endl;
-        }
-
-        // Print blocked processes
-        if (!blockedQueue.empty()) {
-            cout << "BLOCKED PROCESSES:" << endl;
-            queue<int> blockedCopy = blockedQueue;
-            while (!blockedCopy.empty()) {
-                int idx = blockedCopy.front();
-                const SimulatedProcess& blockedProcess = processes[idx];
-                cout << "pid: " << blockedProcess.pid << ", ppid: " << blockedProcess.ppid
-                     << ", value: " << blockedProcess.value << ", pc: " << blockedProcess.pc
-                     << ", blocked: " << (blockedProcess.blocked ? "Yes" : "No")
-                     << ", terminated: " << (blockedProcess.terminated ? "Yes" : "No") << endl;
-                blockedCopy.pop();
+            default:
+            {
+                cerr << "ERROR: Invalid opcode " << opcode << "\n";
+                break;
             }
         }
 
-        // Print ready processes (grouped by priority)
-        cout << "PROCESSES READY TO EXECUTE:" << endl;
-        // Implement priority-based queue processing (not shown in this simplified example)
-        cout << "****************************************************************" << endl;
-    }
-};
-
-int main() {
-    ProcessManager manager;
-
-    // Create the initial process with program loaded from file "init"
-    manager.createInitialProcess("init");
-
-    char command;
-    while (true) {
-        cout << "Enter command (P to print state, Q to quit): ";
-        cin >> command;
-
-        // Convert command to uppercase for case-insensitive comparison
-        command = toupper(command);
-
-        if (command == 'P') {
-            manager.printState();
-        } else if (command == 'Q') {
-            break;  // Exit the loop and terminate the program
-        } else {
-            cout << "Invalid command. Please try again." << endl;
-        }
-
-        // Simulate process scheduling after each command (not shown in this simplified example)
-        // manager.schedule();
+        programCounter++;
     }
 
-    return 0;
+    // Update PCB fields in mainMemory
+    mainMemory[startAddress + 1] = 4;               // TERMINATED state
+    mainMemory[startAddress + 2] = instructionBase - 1; // Update program counter
+    mainMemory[startAddress + 6] = cpuCyclesUsed;
+    mainMemory[startAddress + 7] = registerValue;
+
+    // Print PCB information
+    cout << "Process ID: " << processID << "\n";
+    cout << "State: TERMINATED\n";
+    cout << "Program Counter: " << mainMemory[startAddress + 2] << "\n";
+    cout << "Instruction Base: " << instructionBase << "\n";
+    cout << "Data Base: " << dataBase << "\n";
+    cout << "Memory Limit: " << memoryLimit << "\n";
+    cout << "CPU Cycles Used: " << cpuCyclesUsed << "\n";
+    cout << "Register Value: " << registerValue << "\n";
+    cout << "Max Memory Needed: " << maxMemoryNeeded << "\n";
+    cout << "Main Memory Base: " << mainMemoryBase << "\n";
+    cout << "Total CPU Cycles Consumed: " << cpuCyclesUsed << "\n";
 }
-// g++ -o test test.cpp
-// ./test < input1.txt
