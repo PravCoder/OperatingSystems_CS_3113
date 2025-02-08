@@ -187,6 +187,7 @@ void executeCPU(int startAddress, vector<int>& mainMemory) {
                     regStore = params[0];
                     cout << "stored" << endl;
                 } else {
+                    regStore = params[0]; // STORE REGISTER VALUE EVEN AFTER STORE ERROR
                     cout << "store error!" << endl;
                 }
                 execDuration++;
@@ -214,7 +215,7 @@ void executeCPU(int startAddress, vector<int>& mainMemory) {
     mainMemory[startAddress + 7] = regStore;
 
     // Output process execution details
-    cout << "Process ID: " << procID << endl;
+    cout << "Process ID: " << procID << "\n";
     cout << "State: TERMINATED" << endl;
     cout << "Program Counter: " << mainMemory[startAddress + 2] << endl;
     cout << "Instruction Base: " << instrStart << endl;
@@ -231,7 +232,7 @@ void executeCPU(int startAddress, vector<int>& mainMemory) {
 
 void displayMemoryContents(vector<int> &memoryBlock, int totalRows) {
     for (int index = 0; index < totalRows && index < memoryBlock.size(); index++) {
-        cout << index << " : " << memoryBlock[index] << endl;
+        cout << index << " : " << memoryBlock[index] << "\n";
     }
     //cout << "End of Memory Display" << endl;
 }
