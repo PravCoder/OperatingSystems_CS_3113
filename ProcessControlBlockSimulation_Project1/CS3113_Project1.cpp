@@ -1,353 +1,385 @@
-// The code is made by Shone George Kutty Renjan and my head hurts.
+// ==================================================
+// Process Control Block Simulation Project 1
+// What is struct. 
+// ==================================================
 #include <iostream>
+using namespace std;
+#include <vector> 
+#include <string>
 #include <vector>
 #include <string>
+#include <fstream>
+#include <sstream>
 #include <queue>
 #include <limits>
-#include <sstream>
-
-using namespace std;
-struct PCB {
-    // Define PCB fields as described earlier
-    int processID;  // Unique identifier for the process
-    int state;  // Current status of the process will be one of the following: NEW, READY, RUNNING, or TERMINATED
-    int programCounter; // index of the next instruction to be executed within the process's logical memory
-    int instructionBase;    // Specifies the starting address of the instructions in the logical memory
-    int memoryLimit;  // total size of logical memory allocated to the process
-    int dataBase;   // Points to the beginning of the data segment within the logical memory
-    int cpuCyclesUsed;  // Accumulates the total CPU cycles consumed by the process during its execution
-    int registerValue;  // Simulated register used to store intermediate values during load and store operations
-    int maxMemoryNeeded;    // Specifies the maximum memory required by the process as defined in the input file
-    int mainMemoryBase; // Denotes the starting address in main memory where the process, including its PCB and logical memory, is loade
-    vector<vector<int> > instruction; // each arr is a instruction, each element in vector is data assoicated with instruction, 1st element being opcode
+#include <fstream> 
+#include <cstdio>
 
 
+struct PCB
+{
+    int processID;       // identifer of process
+    int state;        // "new", "ready", "run","terminated"
+    int programCounter;  // index of next instruction to be executed, in logical memory
+    int instructionBase; // starting address of instructions for this process
+    int dataBase;        // address where the data for the instructions starts in logical memory
+    int memoryLimit;     // total size of logical memory allocated to the process    
+    int cpuCyclesUsed;   // number of cpu cycles process as consumed so far
+    int registerValue;   // value of cpu register associated with process
+    int maxMemoryNeeded; // max logical memory required by process as defined in input file
+    int mainMemoryBase;  // starting address in main memory where process, PCB+logical_memory is laoded.  
+
+    vector<vector<int> > instructions; // each arr is a instruction, each element in vector is data assoicated with instruction, 1st element being opcode
 };
-// Function to print the instruction details
-void printInstruction(const vector<int>& instruction) {
-    if (instruction.empty()) {
-        cout << "Invalid instruction" << endl;
-        return;
-    }
-
-    switch (instruction[0]) {
-        case 1: // Compute instruction
-            cout << "Compute Instruction | Iterations: " << instruction[1] 
-                 << " | Cycles: " << instruction[2] << endl;
-            break;
-        case 2: // Simple instruction
-            cout << "Simple Instruction | Cycles: " << instruction[1] << endl;
-            break;
-        case 3: // Store instruction
-            cout << "Store Instruction | Value: " << instruction[1] 
-                 << " | Address: " << instruction[2] << endl;
-            break;
-        case 4: // Load instruction
-            cout << "Load Instruction | Address: " << instruction[1] << endl;
-            break;
-        default:
-            cout << "Unknown instruction type: " << instruction[0] << endl;
+void show_PCB(PCB process) {
+    cout << "PROCESS ["<<process.processID<<"] " << "maxMemoryNeeded: " << process.maxMemoryNeeded << endl;
+    cout << "num-instructions: " << process.instructions.size() << endl;
+    for (int i=0; i<process.instructions.size(); i++) {
+        vector<int> cur_instruction = process.instructions[i];
+        if (cur_instruction[0] == 1) { // compute
+            cout << "instruction: " << cur_instruction[0] << " iter: " << cur_instruction[1] << " cycles: " << cur_instruction[2] << endl;
+        }
+        if (cur_instruction[0] == 2) {
+            cout << "instruction: " << cur_instruction[0] << " cycles: " << cur_instruction[1] << endl;
+        }
+        if (cur_instruction[0] == 3) {
+            cout << "instruction: " << cur_instruction[0] << " value: " << cur_instruction[1] << " address: " << cur_instruction[2] << endl;
+        }
+        if (cur_instruction[0] == 4) {
+            cout << "instruction: " << cur_instruction[0] << " address: " << cur_instruction[1] << endl;
+        }
+        
     }
 }
 
 
+/*
+First 10 address hold PCB metadata 10 fields.
+Next address contain all instructions opcodes for process. 
+Remaining addresses contain data associated with each of instructions in order (cycles, value, address, iterations)
+pcb.instructionBase points to the starting address of this isntruction segemnt in main memory
+pcb.dataBase points to the address where the data for each instruction starts.
+Add pcb start address to readyQueue. 
+*/
+void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<int>& mainMemory, int maxMemory) {
+    // TODO: Implement loading jobs into main memory, store process meta data and instructions
 
+    int cur_address = 0;
+    while (!newJobQueue.empty()) {
+        PCB cur_process = newJobQueue.front();  // access front element
+        //show_PCB(cur_process); 
+        newJobQueue.pop();  
 
+        cur_process.mainMemoryBase = cur_address;
+        cur_process.instructionBase = cur_address + 10; 
+        cur_process.dataBase = cur_process.instructionBase + cur_process.instructions.size();
 
-// Function to load jobs into memory
-void loadJobsToMemory(queue<PCB>& jobQueue, queue<int>& readyQueue, vector<int>& memory, int maxMemory) {
-    const int METADATA_SIZE = 10;  // Size of process metadata block
-    int currentMemoryAddress = 0;
+        mainMemory[cur_address] = cur_process.processID;
+        mainMemory[cur_address + 1] = 1;
+        mainMemory[cur_address + 2] = cur_process.programCounter;
+        mainMemory[cur_address + 3] = cur_process.instructionBase;
+        mainMemory[cur_address + 4] = cur_process.dataBase;
+        mainMemory[cur_address + 5] = cur_process.memoryLimit;
+        mainMemory[cur_address + 6] = cur_process.cpuCyclesUsed;
+        mainMemory[cur_address + 7] = cur_process.registerValue;
+        mainMemory[cur_address + 8] = cur_process.maxMemoryNeeded;
+        mainMemory[cur_address + 9] = cur_process.mainMemoryBase;
 
-    while (!jobQueue.empty()) {
-        PCB currentJob = jobQueue.front();
-        jobQueue.pop();
+        int num_instructions = cur_process.instructions.size();
+        //cout << "num-instructions for job: " << num_instructions << endl;
+        //cout << "size of main memory: " << mainMemory.size() << endl;
 
-        // Calculate total memory needed for instructions and data
-        int totalInstructionsSize = currentJob.instruction.size();
-        int totalDataSize = 0;
-        
-        // Calculate data size based on instruction types
-        for (size_t i = 0; i < currentJob.instruction.size(); i++) {
-            vector<int> instruction = currentJob.instruction[i];
-            switch (instruction[0]) {
-                case 1: totalDataSize += 2; break;  // Compute: needs 2 data slots
-                case 2: totalDataSize += 1; break;  // Print: needs 1 data slot
-                case 3: totalDataSize += 2; break;  // Store: needs 2 data slots
-                case 4: totalDataSize += 1; break;  // Load: needs 1 data slot
+        int instructionAddress = cur_process.instructionBase;
+        int dataAddress = cur_process.dataBase;
+        for (int i=0; i<num_instructions; i++) {
+            vector<int> cur_instruction = cur_process.instructions[i];
+            int opcode = cur_instruction[0];
+           
+            mainMemory[instructionAddress++] = opcode; // access then post-increment 
+            if (opcode == 1) {  // compute
+                //cout << "FLAG1: "<< cur_instruction.size() << endl;
+                mainMemory[dataAddress++] = cur_instruction[1];
+                mainMemory[dataAddress++] = cur_instruction[2];
+            }
+            else if (opcode == 2) {  // print
+                mainMemory[dataAddress++] = cur_instruction[1];
+                //cout << "FLAG4" << endl;
+            }
+            else if (opcode == 3) {  // store
+                mainMemory[dataAddress++] = cur_instruction[1];
+                mainMemory[dataAddress++] = cur_instruction[2];
+                //cout << "FLAG5" << endl;
+            }
+            else if (opcode == 4) {  // load
+                mainMemory[dataAddress++] = cur_instruction[1];
+                //cout << "FLAG6" << endl;
             }
         }
+        cur_address = cur_process.instructionBase + cur_process.maxMemoryNeeded;  // change next process jump formula
+        readyQueue.push(cur_process.mainMemoryBase);  // add the base-address of process to readQueue
 
-        // Calculate memory segments
-        currentJob.mainMemoryBase = currentMemoryAddress;
-        currentJob.instructionBase = currentJob.mainMemoryBase + METADATA_SIZE;
-        currentJob.dataBase = currentJob.instructionBase + totalInstructionsSize;
-        int jobEndAddress = currentJob.dataBase + totalDataSize;
-
-        // Verify memory limits
-        if (jobEndAddress > maxMemory) {
-            // Handle memory overflow - could throw exception or handle error
-            continue;
-        }
-
-        // Store process metadata
-        memory[currentMemoryAddress] = currentJob.processID;
-        memory[currentMemoryAddress + 1] = 1;  // Process status
-        memory[currentMemoryAddress + 2] = currentJob.programCounter;
-        memory[currentMemoryAddress + 3] = currentJob.instructionBase;
-        memory[currentMemoryAddress + 4] = currentJob.dataBase;
-        memory[currentMemoryAddress + 5] = currentJob.memoryLimit;
-        memory[currentMemoryAddress + 6] = currentJob.cpuCyclesUsed;
-        memory[currentMemoryAddress + 7] = currentJob.registerValue;
-        memory[currentMemoryAddress + 8] = currentJob.maxMemoryNeeded;
-        memory[currentMemoryAddress + 9] = currentJob.mainMemoryBase;
-
-        // Load instructions and data
-        int instructionMemoryAddress = currentJob.instructionBase;
-        int dataMemoryAddress = currentJob.dataBase;
-
-        for (size_t i = 0; i < currentJob.instruction.size(); i++) {
-            vector<int> instruction = currentJob.instruction[i];
-            int opcode = instruction[0];
-            memory[instructionMemoryAddress++] = opcode;
-
-            // Handle different instruction types
-            switch (opcode) {
-                case 1:  // Compute instruction
-                    memory[dataMemoryAddress++] = instruction[1];
-                    memory[dataMemoryAddress++] = instruction[2];
-                    break;
-                    
-                case 2:  // Print instruction
-                    memory[dataMemoryAddress++] = instruction[1];
-                    break;
-                    
-                case 3:  // Store instruction
-                    memory[dataMemoryAddress++] = instruction[1];
-                    memory[dataMemoryAddress++] = instruction[2];
-                    break;
-                    
-                case 4:  // Load instruction
-                    memory[dataMemoryAddress++] = instruction[1];
-                    break;
-            }
-        }
-
-        // Update memory address for next job
-        currentMemoryAddress = currentJob.instructionBase + currentJob.maxMemoryNeeded;
         
-        // Add job to ready queue
-        readyQueue.push(currentJob.mainMemoryBase);
     }
 }
 
-void executeCPU(int startAddress, vector<int>& mainMemory) {
-    // Retrieve PCB data from memory
-    int procID = mainMemory[startAddress];
-    int status = mainMemory[startAddress + 1];
-    int instrPtr = mainMemory[startAddress + 2];
-    int instrStart = mainMemory[startAddress + 3];
-    int dataOffset = mainMemory[startAddress + 4];
-    int memLimit = mainMemory[startAddress + 5];
-    int execDuration = mainMemory[startAddress + 6];
-    int regStore = mainMemory[startAddress + 7];
-    int allocLimit = mainMemory[startAddress + 8];
-    int baseMem = mainMemory[startAddress + 9];
+// first version
+void executeCPU(int startAddress, vector<int>&  mainMemory) {  // given starting-address of a pcb-struct
+    // TODO: Implement CPU instruction execution
+    
+    // extract attributes of pcb from main memory because they are stored sequentially
+    int processID = mainMemory[startAddress];
+    int state = mainMemory[startAddress + 1];
+    int programCounter = mainMemory[startAddress + 2];  // create temporary variables that do no modify memory just yet!!
+    int instructionBase = mainMemory[startAddress + 3];
+    int dataBase = mainMemory[startAddress + 4];
+    int memoryLimit = mainMemory[startAddress + 5];
+    int cpuCyclesUsed = mainMemory[startAddress + 6];
+    int registerValue = mainMemory[startAddress + 7];
+    int maxMemoryNeeded = mainMemory[startAddress + 8];
+    int mainMemoryBase = mainMemory[startAddress + 9];
 
-    int totalInstr = dataOffset - instrStart;
-    int logicIdx = 0;
+    // number of instructions or opcodes is distance betwen database and isntructionbase
+    int num_instructions = dataBase - instructionBase; 
+    int data_size = memoryLimit - num_instructions; // size of data-segment
 
-    while (instrPtr < totalInstr) {
-        int opcode = mainMemory[instrStart + instrPtr];
-        vector<int> params;
 
-        // Fetch instruction parameters
-        int numParams = (opcode == 1 || opcode == 3) ? 2 : (opcode == 2 || opcode == 4) ? 1 : 0;
-        for (int i = 0; i < numParams; i++) {
-            if (logicIdx < memLimit - totalInstr) {
-                params.push_back(mainMemory[dataOffset + logicIdx++]);
+    // index in the data segment of instructions
+    int logical_memory_indx = 0; 
+
+    // iterate number of instructions or opcodes
+    for (int i=0; programCounter < num_instructions; i++) {
+        int cur_opcode = mainMemory[instructionBase + i]; // get current opcode in memory, using address of thwere instructions start plus ith instruction
+        vector<int> cur_instruction_data;  // each element is the parameters for the current instruction/opcode
+
+        // compute - has 2 arguments
+        if (cur_opcode == 1) {
+            if (logical_memory_indx + 1 >= data_size) {  // if not enough parameters to do a compute operation push -1 not possible
+                cur_instruction_data.push_back(-1);
+                cur_instruction_data.push_back(-1);
             } else {
-                params.push_back(-1);
+                cur_instruction_data.push_back(mainMemory[dataBase + logical_memory_indx]);  // iterations
+                cur_instruction_data.push_back(mainMemory[dataBase + logical_memory_indx + 1]);  // cycles
             }
+            logical_memory_indx += 2;
         }
 
-        // Execute operation
-        switch (opcode) {
-            case 1: // Arithmetic operation
-                execDuration += params[1];
-                cout << "compute" << endl;
-                break;
-            case 2: // Output
-                execDuration += params[0];
-                cout << "print" << endl;
-                break;
-            case 3: // Store
-                if (params[1] + instrStart >= instrStart && params[1] + instrStart < allocLimit + instrStart) {
-                    mainMemory[params[1] + instrStart] = params[0];
-                    regStore = params[0];
-                    cout << "stored" << endl;
-                } else {
-                    regStore = params[0]; // STORE REGISTER VALUE EVEN AFTER STORE ERROR
-                    cout << "store error!" << endl;
-                }
-                execDuration++;
-                break;
-            case 4: // Load
-                if (params[0] + instrStart >= instrStart && params[0] + instrStart < allocLimit + instrStart) {
-                    regStore = mainMemory[params[0] + instrStart];
-                    cout << "loaded" << endl;
-                } else {
-                    cout << "load error!" << endl;
-                }
-                execDuration++;
-                break;
-            default:
-                cerr << "ERROR: Invalid opcode " << opcode << endl;
+        // store - has 2 arguments
+        else if (cur_opcode == 3) {
+            if (logical_memory_indx + 1 >= data_size) {
+                cur_instruction_data.push_back(-1);
+                cur_instruction_data.push_back(-1);
+            } else {
+                cur_instruction_data.push_back(mainMemory[dataBase + logical_memory_indx]);   // value
+                cur_instruction_data.push_back(mainMemory[dataBase + logical_memory_indx + 1]);  // address
+            }
+            logical_memory_indx += 2;
         }
 
-        instrPtr++;
+        // load - has 1 arguments
+        else if (cur_opcode == 4) {
+            if (logical_memory_indx >= data_size) {
+                cur_instruction_data.push_back(-1);
+            } else {
+                cur_instruction_data.push_back(mainMemory[dataBase + logical_memory_indx]);  // address
+            }
+            logical_memory_indx += 1;
+        }
+
+        // print - has 1 arguments
+        else if (cur_opcode == 2) {
+            if (logical_memory_indx >= data_size) {
+                cur_instruction_data.push_back(-1);
+            } else {
+                cur_instruction_data.push_back(mainMemory[dataBase + logical_memory_indx]);
+            }
+            logical_memory_indx += 1;
+        }
+
+
+        // process each instruction opcode and modify the variables
+        // COMPUTE
+        if (cur_opcode == 1) {
+            cpuCyclesUsed += cur_instruction_data[1];
+            cout << "compute" << "\n";
+        }
+        // PRINT
+        else if (cur_opcode == 2) {
+            cpuCyclesUsed += cur_instruction_data[0];
+            cout << "print" << "\n";
+        }
+        // STORE
+        else if (cur_opcode == 3) {
+            // check if we are sindide data segment
+            if (cur_instruction_data[1] + instructionBase >= instructionBase && (cur_instruction_data[1] + instructionBase) < maxMemoryNeeded + instructionBase) { 
+                mainMemory[cur_instruction_data[1] + instructionBase] = cur_instruction_data[0];
+                registerValue = cur_instruction_data[0];
+                cout << "stored" << "\n";
+            } else {
+                registerValue = cur_instruction_data[0];
+                cout << "store error!" << "\n";
+            }
+            cpuCyclesUsed++;
+        }
+        // LOAD
+        else if (cur_opcode == 4) {
+            // check if we are sindide data segment
+            if ((cur_instruction_data[0] + instructionBase) >= instructionBase && (cur_instruction_data[0] + instructionBase) < (maxMemoryNeeded + instructionBase)) {
+                registerValue = mainMemory[cur_instruction_data[0] + instructionBase];
+                cout << "loaded" << "\n";
+            } else{
+                cout << "load error!" << "\n";
+            }
+            cpuCyclesUsed++;
+        }
+        // some opcode error
+        else {
+            cerr << "ERROR: Invalid opcode " << cur_opcode << "\n";
+        }
+
+        programCounter++; // increment program counter to go to next instruction
     }
 
-    // Update process status
     mainMemory[startAddress + 1] = 4;              // terminate process
-    mainMemory[startAddress + 2] = instrStart - 1;  
-    mainMemory[startAddress + 6] = execDuration;
-    mainMemory[startAddress + 7] = regStore;
+    mainMemory[startAddress + 2] = instructionBase - 1; // update program counter for this pcb, to be before instructionBase
+    mainMemory[startAddress + 6] = cpuCyclesUsed;
+    mainMemory[startAddress + 7] = registerValue;
 
-    // Output process execution details
-    cout << "Process ID: " << procID << "\n";
-    cout << "State: TERMINATED" << endl;
-    cout << "Program Counter: " << mainMemory[startAddress + 2] << endl;
-    cout << "Instruction Base: " << instrStart << endl;
-    cout << "Data Base: " << dataOffset << endl;
-    cout << "Memory Limit: " << memLimit << endl;
-    cout << "CPU Cycles Used: " << execDuration << endl;
-    cout << "Register Value: " << regStore << endl;
-    cout << "Max Memory Needed: " << allocLimit << endl;
-    cout << "Main Memory Base: " << baseMem << endl;
-    cout << "Total CPU Cycles Consumed: " << execDuration << endl;
+    // Print PCB information.
+    cout << "Process ID: " << processID << "\n";
+    cout << "State: TERMINATED\n";
+    cout << "Program Counter: " << mainMemory[startAddress + 2] << "\n";
+    cout << "Instruction Base: " << instructionBase << "\n";
+    cout << "Data Base: " << dataBase << "\n";
+    cout << "Memory Limit: " << memoryLimit << "\n";
+    cout << "CPU Cycles Used: " << cpuCyclesUsed << "\n";
+    cout << "Register Value: " << registerValue << "\n";
+    cout << "Max Memory Needed: " << maxMemoryNeeded << "\n";
+    cout << "Main Memory Base: " << mainMemoryBase << "\n";
+    cout << "Total CPU Cycles Consumed: " << cpuCyclesUsed << "\n";
+
+
+
 }
 
 
 
-void displayMemoryContents(vector<int> &memoryBlock, int totalRows) {
-    for (int index = 0; index < totalRows && index < memoryBlock.size(); index++) {
-        cout << index << " : " << memoryBlock[index] << "\n";
+
+void show_main_memory(vector<int> &mainMemory, int rows) {
+    for (int i = 0; i < rows; i++){
+        cout << i << ": " << mainMemory[i] << endl;
     }
-    //cout << "End of Memory Display" << endl;
+    cout << endl;
 }
-// Function Prototypes for provided functions
-void loadJobsToMemory(queue<PCB>& jobQueue, queue<int>& readyQueue, vector<int>& memory, int maxMemory);
-// 
-void executeCPU(int startAddress, vector<int>& mainMemory);
-void displayMemoryContents(vector<int>& memoryBlock, int totalRows);
 
-// Function Prototypes for added functions
-void parseProcess(istringstream& inputStream, PCB& process);
-void parseInstruction(istringstream& inputStream, int instructionOpcode, vector<int>& currentInstruction);
-void executeProcesses(queue<int>& readyQueue, vector<int>& mainMemory);
 
 int main() {
-    int maxMemoryCapacity, totalProcesses;
+    // Step 1: Read and parse input file
+    // TODO: Implement input parsing and populate newJobQueue
+    // iterate number of process and extract each
+    // Step 1: Read and parse input file
+    int maxMemory;
+    int num_processes;
     vector<int> mainMemory;
     queue<int> readyQueue;
-    queue<PCB> jobQueue;
+    queue<PCB> newJobQueue;
+    cin >> maxMemory;
+    cin >> num_processes;
+    //cout << "main memory: " << maxMemory << "\n";
+    //cout << "number of process: " << num_processes << "\n";
+    mainMemory.resize(maxMemory, -1);
 
-    cin >> maxMemoryCapacity >> totalProcesses; // Read memory capacity and number of processes
-    mainMemory.resize(maxMemoryCapacity, -1);
-
-    cin.ignore(numeric_limits<streamsize>::max(), '\n'); // Ignore the rest of the line
-    for (int i = 0; i < totalProcesses; i++) {
+    cin.ignore(numeric_limits<streamsize>::max(), '\n');
+    for (int i = 0; i < num_processes; i++) {
         string line;
-        getline(cin, line);
-        istringstream inputStream(line); // Create an input stream for the line
+        getline(cin, line);  // read entire process line
+        istringstream ss(line);
+        //cout << "Raw Line: " << line << endl;
+
+        int cur_process_id, cur_process_max_memory_needed, cur_process_num_instructions;  
+        ss >> cur_process_id >> cur_process_max_memory_needed >> cur_process_num_instructions;   // read in first 3 variables of process
 
         PCB process;
-        parseProcess(inputStream, process);  // Function to parse the process details and instructions
-        jobQueue.push(process);
+        process.processID = cur_process_id;
+        process.maxMemoryNeeded = cur_process_max_memory_needed;
+        process.state = 0; 
+        process.programCounter = 0;
+        process.memoryLimit = process.maxMemoryNeeded;
+        process.cpuCyclesUsed = 0;
+        process.registerValue = 0;
+        
+        //cout << "CUR-PROCESS: ID: " << process.processID << " max_mem: " << process.maxMemoryNeeded << " num_instructions: " << cur_process_num_instructions << "\n";
+
+        // just iterate instructions of each cur-process
+        for (int j = 0; j < cur_process_num_instructions; j++) {
+            int instruction_opcode;  // read in opcode based on that read in data of instruction
+            ss >> instruction_opcode;
+            vector<int> cur_instruction;  // instruction-arr for cur-instruction
+            cur_instruction.push_back(instruction_opcode); // add opcode as first element for this instruction-arr
+
+            if (instruction_opcode == 1) { // compute
+                int iterations, cycles;
+                ss >> iterations >> cycles;
+                cur_instruction.push_back(iterations);
+                cur_instruction.push_back(cycles);
+                //cout << "instruction: " << instruction_opcode << " iter: " << iterations << " cycles: " << cycles << endl;
+            } 
+            if (instruction_opcode == 2) {  // print
+                int cycles;
+                ss >> cycles;
+                cur_instruction.push_back(cycles);
+                //cout << "instruction: " << instruction_opcode << " cycles: " << cycles << endl;
+            } 
+            if (instruction_opcode == 3) {   //store
+                int value, address;
+                ss >> value >> address;
+                cur_instruction.push_back(value);  
+                cur_instruction.push_back(address);
+                //cout << "instruction: " << instruction_opcode << " value: " << value << " address: " << address << endl;
+            }
+            if (instruction_opcode == 4) {  // load
+                int address;
+                ss >> address;
+                cur_instruction.push_back(address);
+                //cout << "instruction: " << instruction_opcode << " address: " << address << endl;
+            }
+            //cout << "cur-instruction size: " << cur_instruction.size() << endl;
+            process.instructions.push_back(cur_instruction);
+        }
+        // push cur-pcb to new-job-queue
+        newJobQueue.push(process);  
     }
 
-    loadJobsToMemory(jobQueue, readyQueue, mainMemory, maxMemoryCapacity);
 
-    displayMemoryContents(mainMemory, maxMemoryCapacity);
+    
+    // Step 2: Load jobs into main memory
+    loadJobsToMemory(newJobQueue, readyQueue, mainMemory, maxMemory);
 
-    executeProcesses(readyQueue, mainMemory);
+
+    // Step 3: After you load the jobs in the queue go over the main memory
+    // and print the content of mainMemory. It will be in the table format
+    // three columns as I had provided you earlier.
+    //cout << "Main Memory After Loading Processes:" << endl;
+    //show_main_memory(mainMemory, 400);
+    for (int i = 0; i < mainMemory.size(); i++){
+        cout << i << " : " << mainMemory[i] << "\n";
+    }
+
+
+
+    // // Step 4: Process execution
+    while (!readyQueue.empty())
+    {
+        int pcd_start_addy = readyQueue.front();
+        readyQueue.pop();
+        executeCPU(pcd_start_addy, mainMemory);
+    }
+
 
     return 0;
 }
 
-// Function to parse each process details from the input
-void parseProcess(istringstream& inputStream, PCB& process) {
-    int processID, maxMemoryRequired, numInstructions;
-    inputStream >> processID >> maxMemoryRequired >> numInstructions;
-
-    process.processID = processID; // Unique identifier for the process
-    process.maxMemoryNeeded = maxMemoryRequired; // Specifies the maximum memory required by the process as defined in the input file
-    process.state=0; // Current status of the process will be one of the following: NEW, READY, RUNNING, or TERMINATED
-    process.programCounter =0; // index of the next instruction to be executed within the process's logical memory
-    process.memoryLimit = process.maxMemoryNeeded; // total size of logical memory allocated to the process
-    process.cpuCyclesUsed=0; // Accumulates the total CPU cycles consumed by the process during its execution
-    process.registerValue=0; // Simulated register used to store intermediate values during load and store operations
-
-    // Parse instructions
-    for (int j = 0; j < numInstructions; j++) {
-        int instructionOpcode; // Opcode for the instruction
-        inputStream >> instructionOpcode; // Read the opcode
-        vector<int> currentInstruction; // Vector to store the instruction details
-        currentInstruction.push_back(instructionOpcode); // Add the opcode to the instruction vector
-        parseInstruction(inputStream, instructionOpcode, currentInstruction);
-        process.instruction.push_back(currentInstruction);
-    }
-}
-
-// Function to parse each instruction based on opcode
-void parseInstruction(istringstream& inputStream, int opcode, vector<int>& instruction) {
-    switch (opcode) {
-        case 1: { // Compute instruction (opcode 1)
-            int iterationCount, cycleCount; // Number of iterations and cycles for the compute instruction
-            inputStream >> iterationCount >> cycleCount; // Read the iteration count and cycle count
-            instruction.push_back(iterationCount); // Add the iteration count to the instruction vector
-            instruction.push_back(cycleCount);  // Add the cycle count to the instruction vector
-            break;
-        }
-        
-        case 2: {
-            int cycleCount;
-            inputStream >> cycleCount; // Read the cycle count
-            instruction.push_back(cycleCount); // Add the cycle count to the instruction vector
-            break;
-        }
-        case 3: {
-            int value, address;
-            inputStream >> value >> address; // Read the value and address
-            instruction.push_back(value); // Add the value to the instruction vector
-            instruction.push_back(address); // Add the address to the instruction vector
-            break;
-        }
-        case 4: {
-            int address;
-            inputStream >> address; // Read the address
-            instruction.push_back(address); // Add the address to the instruction vector
-            break;
-        }
-        default:
-            // Optional: Handle invalid opcode if needed
-            cerr << "Error: Unknown opcode " << opcode << endl;
-            break;
-    }
-}
-
-// Function to execute all processes in the ready queue
-void executeProcesses(queue<int>& readyQueue, vector<int>& mainMemory) {
-    while (!readyQueue.empty()) {
-        int startAddress = readyQueue.front();
-        readyQueue.pop();
-        executeCPU(startAddress, mainMemory);
-    }
-}
-
 
 /* 
-g++ -o shone shone.cpp
-./shone  < input1.txt
+g++ -o CS3113_Project1 CS3113_Project1.cpp
+./CS3113_Project1  < input1.txt
 */
