@@ -66,7 +66,7 @@ void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue, vector<in
 
     int cur_address = 0;
     while (!newJobQueue.empty()) {
-        PCB cur_process = newJobQueue.front();  // access front element
+        PCB cur_process = newJobQueue.front();  // access front elemen
         //show_PCB(cur_process); 
         newJobQueue.pop();  
 
