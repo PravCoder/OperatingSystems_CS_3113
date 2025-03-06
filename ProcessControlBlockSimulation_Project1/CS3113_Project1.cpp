@@ -1,3 +1,5 @@
+// NOTE: SUBMISSION
+
 // ==================================================
 // Process Control Block Simulation Project 1
 // What is struct. 
