@@ -178,178 +178,194 @@ void checkIOWaitingQueue(queue<int>& readyQueue, vector<int>& mainMemory, queue<
     }
 }
 
-void executeCPU(int startAddress, vector<int>& mainMemory, queue<int>& readyQueue, queue<IOWaitInfo>& IOWaitingQueue) {
-    // Reset interrupt flags
+void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOWaitInfo>& ioQueue) {
+    // Clear existing flags
     timeOutInterrupt = false;
     IOInterrupt = false;
     
-    // Extract PCB fields from main memory - use consistent naming with working version
-    int processID = mainMemory[startAddress];
-    int stateIndex = startAddress + 1;
-    int programCounterIndex = startAddress + 2;
-    int instructionBase = mainMemory[startAddress + 3];
-    int dataBase = mainMemory[startAddress + 4];  // This is the actual address where data starts
-    int memoryLimitIndex = startAddress + 5;
-    int cpuCyclesConsumedIndex = startAddress + 6;
-    int registerIndex = startAddress + 7;
+    // Read control block data - using completely different variable names
+    const int procId = memory[memStart];
+    const int statePos = memStart + 1;
+    const int pcPos = memStart + 2;
+    const int codeStart = memory[memStart + 3];
+    const int heapStart = memory[memStart + 4];
+    const int memLimitPos = memStart + 5;
+    const int cycleCountPos = memStart + 6;
+    const int regPos = memStart + 7;
     
-    // Apply context switch time
+    // Increment system timer for context switch overhead
     globalClock += contextSwitchTime;
     
-    // Initialize metadata index to point to data
-    int metaDataIndex = dataBase - 1;  // Will be incremented before first use
+    // Use separate variables to track execution state
+    int dataPos;        // Position in data section
+    int insPointer;     // Current instruction position
+    int cyclesExecuted = 0; // Cycles used in this quantum
     
-    // Set initial program counter
-    int programCounter;
-    if (mainMemory[stateIndex] == 1) {  // NEW state
-        // First time running this process
-        programCounter = instructionBase;
-        processStartTimes[processID] = globalClock;
+    // Initialize execution state based on process status
+    if (memory[statePos] == 1) {  // First run (NEW)
+        insPointer = codeStart;
+        processStartTimes[procId] = globalClock;
+        dataPos = heapStart - 1;  // Will be incremented before access
     } else {
-        // Process was interrupted before
-        programCounter = mainMemory[programCounterIndex];
+        // Resume from saved state
+        insPointer = memory[pcPos];
         
-        // Calculate how deep into the metadata we are based on the program counter
-        int instructionsCompleted = programCounter - instructionBase;
-        for (int i = instructionBase; i < programCounter; i++) {
-            int tempOpcode = mainMemory[i];
-            if (tempOpcode == 1 || tempOpcode == 3) {  // compute or store (2 data items)
-                metaDataIndex += 2;
-            } else {  // print or load (1 data item)
-                metaDataIndex += 1;
+        // Recalculate data position based on completed instructions
+        dataPos = heapStart - 1;
+        for (int addr = codeStart; addr < memory[pcPos]; addr++) {
+            // Add appropriate data slots based on instruction type
+            switch (memory[addr]) {
+                case 1: // compute - needs 2 data items
+                case 3: // store - needs 2 data items
+                    dataPos += 2;
+                    break;
+                case 2: // print - needs 1 data item
+                case 4: // load - needs 1 data item
+                    dataPos += 1;
+                    break;
             }
         }
     }
     
-    // Update state to RUNNING
-    mainMemory[stateIndex] = 3;
-    cout << "Process " << processID << " has moved to Running." << endl;
+    // Set process to running state
+    memory[statePos] = 3;
+    cout << "Process " << procId << " has moved to Running." << endl;
     
-    // Track CPU cycles for this quantum
-    int cpuCyclesConsumed = 0;
-    
-    // Get first opcode
-    int opcodeValue = mainMemory[programCounter];
-    
-    // Execute instructions
-    while (programCounter < dataBase && cpuCyclesConsumed < cpuAllocated) {
-        // COMPUTE instruction
-        if (opcodeValue == 1) {
+    // Main execution loop
+    while (insPointer < heapStart && cyclesExecuted < cpuAllocated) {
+        // Get current instruction
+        int opcode = memory[insPointer];
+        
+        // Execute appropriate instruction based on opcode
+        if (opcode == 1) {  // COMPUTE
             cout << "compute" << endl;
             
-            metaDataIndex++;  // Skip iterations
-            metaDataIndex++;  // Now at cycles
+            // Skip iterations parameter, go directly to cycles
+            dataPos += 2;
             
-            // Update cycle counts - 
-            globalClock += mainMemory[metaDataIndex];
-            cpuCyclesConsumed += mainMemory[metaDataIndex];
-            mainMemory[cpuCyclesConsumedIndex] += mainMemory[metaDataIndex];
+            // Get CPU cycles from data
+            int cyclesToAdd = memory[dataPos];
+            
+            // Update timers and counters
+            cyclesExecuted += cyclesToAdd;
+            memory[cycleCountPos] += cyclesToAdd;
+            globalClock += cyclesToAdd;
         }
-        // PRINT instruction (I/O operation)
-        else if (opcodeValue == 2) {
-            metaDataIndex++;  // Now at cycles
+        else if (opcode == 2) {  // PRINT
+            // Move to cycles parameter
+            dataPos++;
             
-            // Update cycle tracking for I/O - match working version
-            cpuCyclesConsumed += mainMemory[metaDataIndex];
-            mainMemory[cpuCyclesConsumedIndex] += mainMemory[metaDataIndex];
-            IOWaitTime = mainMemory[metaDataIndex];
+            // Get cycles needed for I/O
+            int ioCycles = memory[dataPos];
+            
+            // Update accounting
+            cyclesExecuted += ioCycles;
+            memory[cycleCountPos] += ioCycles;
+            
+            // Set up I/O wait
+            IOWaitTime = ioCycles;
             IOInterrupt = true;
-            programCounter++;  // Advance program counter before break
+            
+            // Increment instruction pointer before exit
+            insPointer++;
             break;
         }
-        // STORE instruction
-        else if (opcodeValue == 3) {
-            metaDataIndex++;  // Now at value to store
+        else if (opcode == 3) {  // STORE
+            // Get value to store
+            dataPos++;
+            int val = memory[dataPos];
             
-            // First update register value
-            mainMemory[registerIndex] = mainMemory[metaDataIndex];
+            // Update CPU register
+            memory[regPos] = val;
             
-            metaDataIndex++;  // Now at address
+            // Get target address
+            dataPos++;
+            int targetAddr = memory[dataPos] + memStart;
             
-            // Calculate physical address
-            int locationToBeStored = mainMemory[metaDataIndex] + startAddress;
-            int endOfCurrentMemory = startAddress + mainMemory[memoryLimitIndex];
-            
-            // Check address bounds
-            if (locationToBeStored >= endOfCurrentMemory || locationToBeStored < dataBase) {
-                cout << "store error!" << endl;
-            } else {
-                // Store the register value at the specified location
-                mainMemory[locationToBeStored] = mainMemory[registerIndex];
+            // Verify memory bounds
+            int memLimit = memStart + memory[memLimitPos];
+            if (targetAddr >= memStart && targetAddr < memLimit && targetAddr >= heapStart) {
+                memory[targetAddr] = val;
                 cout << "stored" << endl;
-            }
-            
-            // Update cycle counts
-            globalClock++;
-            cpuCyclesConsumed += 1;
-            mainMemory[cpuCyclesConsumedIndex] += 1;
-        }
-        // LOAD instruction
-        else if (opcodeValue == 4) {
-            metaDataIndex++;  // Now at address
-            
-            // Calculate physical address
-            int location = mainMemory[metaDataIndex] + startAddress;
-            int endOfCurrentMemory = startAddress + mainMemory[memoryLimitIndex];
-            
-            // Check address bounds
-            if (location >= endOfCurrentMemory) {
-                cout << "load error!" << endl;
             } else {
-                // Load value from memory into register
-                mainMemory[registerIndex] = mainMemory[location];
-                cout << "loaded" << endl;
+                cout << "store error!" << endl;
             }
             
-            // Update cycle counts
+            // Update cycle accounting
             globalClock++;
-            cpuCyclesConsumed += 1;
-            mainMemory[cpuCyclesConsumedIndex] += 1;
+            cyclesExecuted++;
+            memory[cycleCountPos]++;
+        }
+        else if (opcode == 4) {  // LOAD
+            // Get source address
+            dataPos++;
+            int sourceAddr = memory[dataPos] + memStart;
+            
+            // Verify memory bounds
+            int memLimit = memStart + memory[memLimitPos];
+            if (sourceAddr >= memStart && sourceAddr < memLimit) {
+                // Load into register
+                memory[regPos] = memory[sourceAddr];
+                cout << "loaded" << endl;
+            } else {
+                cout << "load error!" << endl;
+            }
+            
+            // Update cycle accounting
+            globalClock++;
+            cyclesExecuted++;
+            memory[cycleCountPos]++;
+        }
+        else {
+            cout << "Unknown instruction: " << opcode << endl;
         }
         
-        // Advance to next instruction
-        programCounter++;
+        // Move to next instruction
+        insPointer++;
         
-        // Get next opcode
-        if (programCounter < dataBase) {
-            opcodeValue = mainMemory[programCounter];
-            
-            // Check if CPU time limit is reached
-            if (cpuCyclesConsumed >= cpuAllocated) {
-                timeOutInterrupt = true;
-                break;
-            }
+        // Check for timeout
+        if (cyclesExecuted >= cpuAllocated && insPointer < heapStart) {
+            timeOutInterrupt = true;
+            break;
         }
     }
     
-    // Save the current program counter
-    mainMemory[programCounterIndex] = programCounter;
+    // Save execution state
+    memory[pcPos] = insPointer;
     
-    // Handle interrupts
+    // Handle any active interrupts
     if (IOInterrupt) {
-        cout << "Process " << processID << " issued an IOInterrupt and moved to the IOWaitingQueue." << endl;
-        IOWaitInfo waitInfo = {startAddress, globalClock, IOWaitTime};
-        IOWaitingQueue.push(waitInfo);
+        cout << "Process " << procId << " issued an IOInterrupt and moved to the IOWaitingQueue." << endl;
+        
+        // Create wait record and enqueue
+        IOWaitInfo wait;
+        wait.startAddress = memStart;
+        wait.timeEntered = globalClock;
+        wait.timeNeeded = IOWaitTime;
+        ioQueue.push(wait);
         return;
     }
     
     if (timeOutInterrupt) {
-        cout << "Process " << processID << " has a TimeOUT interrupt and is moved to the ReadyQueue." << endl;
-        mainMemory[stateIndex] = 2;  // Set state back to READY
-        readyQueue.push(startAddress);
+        cout << "Process " << procId << " has a TimeOUT interrupt and is moved to the ReadyQueue." << endl;
+        
+        // Set process back to ready state and enqueue
+        memory[statePos] = 2;
+        readyQ.push(memStart);
         return;
     }
     
-    // If we get here, the process has completed
-    mainMemory[stateIndex] = 4;  // TERMINATED
+    // Process has completed normally
+    memory[statePos] = 4; // Set state to TERMINATED
     
-    // Reset program counter to one less than instructionBase (important!)
-    mainMemory[programCounterIndex] = instructionBase - 1;
+    // Reset program counter to before instruction area (as in reference)
+    memory[pcPos] = codeStart - 1;
     
-    printPCBFromMainMemory(startAddress, mainMemory);
-    cout << "Process " << processID << " terminated. Entered running state at: " 
-         << processStartTimes[processID] << ". Terminated at: " << globalClock 
-         << ". Total Execution Time: " << globalClock - processStartTimes[processID] << "." << endl;
+    // Display process completion information
+    printPCBFromMainMemory(memStart, memory);
+    cout << "Process " << procId << " terminated. Entered running state at: " 
+         << processStartTimes[procId] << ". Terminated at: " << globalClock 
+         << ". Total Execution Time: " << globalClock - processStartTimes[procId] << "." << endl;
 }
 
 int main() {
