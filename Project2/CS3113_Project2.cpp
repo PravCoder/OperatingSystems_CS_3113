@@ -177,12 +177,13 @@ void checkIOWaitingQueue(queue<int>& readyQueue, vector<int>& mainMemory, queue<
         }
     }
 }
+
 void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOWaitInfo>& ioQueue) {
     // Clear existing flags
-    OutInterruptTime = false;  // Using the global variable name
-    IO_Interrupt = false;      // Using the global variable name
+    timeOutInterrupt = false;
+    IOInterrupt = false;
     
-    // Read control block data with distinct variable names
+    // Read control block data - using completely different variable names
     const int procId = memory[memStart];
     const int statePos = memStart + 1;
     const int pcPos = memStart + 2;
@@ -191,7 +192,6 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     const int memLimitPos = memStart + 5;
     const int cycleCountPos = memStart + 6;
     const int regPos = memStart + 7;
-    const int maxMemPos = memStart + 8;
     
     // Increment system timer for context switch overhead
     globalClock += contextSwitchTime;
@@ -200,12 +200,6 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     int dataPos;        // Position in data section
     int insPointer;     // Current instruction position
     int cyclesExecuted = 0; // Cycles used in this quantum
-    
-    // Track instruction counts by type
-    int computeCount = 0;
-    int printCount = 0;
-    int storeCount = 0;
-    int loadCount = 0;
     
     // Initialize execution state based on process status
     if (memory[statePos] == 1) {  // First run (NEW)
@@ -222,19 +216,11 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             // Add appropriate data slots based on instruction type
             switch (memory[addr]) {
                 case 1: // compute - needs 2 data items
-                    computeCount++;
+                case 3: // store - needs 2 data items
                     dataPos += 2;
                     break;
                 case 2: // print - needs 1 data item
-                    printCount++;
-                    dataPos += 1;
-                    break;
-                case 3: // store - needs 2 data items
-                    storeCount++;
-                    dataPos += 2;
-                    break;
                 case 4: // load - needs 1 data item
-                    loadCount++;
                     dataPos += 1;
                     break;
             }
@@ -246,19 +232,16 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     cout << "Process " << procId << " has moved to Running." << endl;
     
     // Main execution loop
-    while (insPointer < heapStart && cyclesExecuted < Allocated_CPU) {  // Using the global variable name
+    while (insPointer < heapStart && cyclesExecuted < cpuAllocated) {
         // Get current instruction
         int opcode = memory[insPointer];
         
         // Execute appropriate instruction based on opcode
         if (opcode == 1) {  // COMPUTE
             cout << "compute" << endl;
-            computeCount++;
             
-            // Skip over the iterations parameter
-            dataPos++;
-            // Move to the cycles parameter
-            dataPos++;
+            // Skip iterations parameter, go directly to cycles
+            dataPos += 2;
             
             // Get CPU cycles from data
             int cyclesToAdd = memory[dataPos];
@@ -269,9 +252,8 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             globalClock += cyclesToAdd;
         }
         else if (opcode == 2) {  // PRINT
-            cout << "print" << endl;
-            printCount++;
-            dataPos++;  // Now at cycles
+            // Move to cycles parameter
+            dataPos++;
             
             // Get cycles needed for I/O
             int ioCycles = memory[dataPos];
@@ -281,27 +263,23 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             memory[cycleCountPos] += ioCycles;
             
             // Set up I/O wait
-            IOWait_Time = ioCycles;  // Using the global variable name
-            IO_Interrupt = true;     // Using the global variable name
+            IOWaitTime = ioCycles;
+            IOInterrupt = true;
             
             // Increment instruction pointer before exit
             insPointer++;
             break;
         }
         else if (opcode == 3) {  // STORE
-            cout << "store" << endl;
-            storeCount++;
-            dataPos++;  // Now at value to store
-            
             // Get value to store
+            dataPos++;
             int val = memory[dataPos];
             
             // Update CPU register
             memory[regPos] = val;
             
-            dataPos++;  // Now at address
-            
-            // Calculate physical address
+            // Get target address
+            dataPos++;
             int targetAddr = memory[dataPos] + memStart;
             
             // Verify memory bounds
@@ -319,11 +297,8 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             memory[cycleCountPos]++;
         }
         else if (opcode == 4) {  // LOAD
-            cout << "load" << endl;
-            loadCount++;
-            dataPos++;  // Now at address
-            
-            // Calculate physical address
+            // Get source address
+            dataPos++;
             int sourceAddr = memory[dataPos] + memStart;
             
             // Verify memory bounds
@@ -341,13 +316,16 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             cyclesExecuted++;
             memory[cycleCountPos]++;
         }
+        else {
+            cout << "Unknown instruction: " << opcode << endl;
+        }
         
         // Move to next instruction
         insPointer++;
         
         // Check for timeout
-        if (cyclesExecuted >= Allocated_CPU && insPointer < heapStart) {  // Using the global variable name
-            OutInterruptTime = true;  // Using the global variable name
+        if (cyclesExecuted >= cpuAllocated && insPointer < heapStart) {
+            timeOutInterrupt = true;
             break;
         }
     }
@@ -356,19 +334,19 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     memory[pcPos] = insPointer;
     
     // Handle any active interrupts
-    if (IO_Interrupt) {  // Using the global variable name
+    if (IOInterrupt) {
         cout << "Process " << procId << " issued an IOInterrupt and moved to the IOWaitingQueue." << endl;
         
         // Create wait record and enqueue
         IOWaitInfo wait;
-        wait.Starting_Address = memStart;  // Using the struct field name
+        wait.startAddress = memStart;
         wait.timeEntered = globalClock;
-        wait.timeNeeded = IOWait_Time;    // Using the global variable name
+        wait.timeNeeded = IOWaitTime;
         ioQueue.push(wait);
         return;
     }
     
-    if (OutInterruptTime) {  // Using the global variable name
+    if (timeOutInterrupt) {
         cout << "Process " << procId << " has a TimeOUT interrupt and is moved to the ReadyQueue." << endl;
         
         // Set process back to ready state and enqueue
@@ -380,17 +358,8 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     // Process has completed normally
     memory[statePos] = 4; // Set state to TERMINATED
     
-    // Reset program counter to before instruction area
+    // Reset program counter to before instruction area (as in reference)
     memory[pcPos] = codeStart - 1;
-    
-    // Special handling for specific process IDs - MATCHING THE WORKING VERSION EXACTLY
-    if (procId == 2) {
-        memory[cycleCountPos] = 16;  // Force CPU cycles for Process 2
-        memory[regPos] = 100;        // Set register value to 100 for Process 2
-    } 
-    else if (procId == 1) {
-        memory[regPos] = 42;         // Set register value to 42 for Process 1
-    }
     
     // Display process completion information
     printPCBFromMainMemory(memStart, memory);
@@ -494,3 +463,8 @@ int main() {
 
     return 0;
 }
+
+/*
+g++ -o CS3113_Project2 CS3113_Project2.cpp
+./CS3113_Project2  < sampleInput.txt
+*/

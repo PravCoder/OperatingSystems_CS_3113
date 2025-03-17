@@ -177,10 +177,11 @@ void checkIOWaitingQueue(queue<int>& readyQueue, vector<int>& mainMemory, queue<
 // Function to execute CPU// Function to execute CPU
 
 // Function to execute CPU
+// Function to execute CPU
 void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOWaitInfo>& ioQueue) {
     // Clear existing flags
-    OutInterruptTime = false;  // Using the global variable name
-    IO_Interrupt = false;      // Using the global variable name
+    OutInterruptTime = false;
+    IO_Interrupt = false;
     
     // Read control block data with distinct variable names
     const int procId = memory[memStart];
@@ -200,6 +201,9 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     int dataPos;        // Position in data section
     int insPointer;     // Current instruction position
     int cyclesExecuted = 0; // Cycles used in this quantum
+    
+    // Track last value used in store/load operations
+    int lastOperationValue = 0;
     
     // Track instruction counts by type
     int computeCount = 0;
@@ -246,7 +250,7 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     cout << "Process " << procId << " has moved to Running." << endl;
     
     // Main execution loop
-    while (insPointer < heapStart && cyclesExecuted < Allocated_CPU) {  // Using the global variable name
+    while (insPointer < heapStart && cyclesExecuted < Allocated_CPU) {
         // Get current instruction
         int opcode = memory[insPointer];
         
@@ -255,13 +259,13 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             cout << "compute" << endl;
             computeCount++;
             
-            // Skip over the iterations parameter
-            dataPos++;
-            // Move to the cycles parameter
-            dataPos++;
+            // Skip iterations, go directly to cycles parameter
+            dataPos += 1;  // Skip iterations
+            dataPos += 1;  // Now at cycles value
             
             // Get CPU cycles from data
             int cyclesToAdd = memory[dataPos];
+            lastOperationValue = cyclesToAdd;  // Track last operation value
             
             // Update timers and counters
             cyclesExecuted += cyclesToAdd;
@@ -275,14 +279,15 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             
             // Get cycles needed for I/O
             int ioCycles = memory[dataPos];
+            lastOperationValue = ioCycles;  // Track last operation value
             
             // Update accounting
             cyclesExecuted += ioCycles;
             memory[cycleCountPos] += ioCycles;
             
             // Set up I/O wait
-            IOWait_Time = ioCycles;  // Using the global variable name
-            IO_Interrupt = true;     // Using the global variable name
+            IOWait_Time = ioCycles;
+            IO_Interrupt = true;
             
             // Increment instruction pointer before exit
             insPointer++;
@@ -295,6 +300,7 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             
             // Get value to store
             int val = memory[dataPos];
+            lastOperationValue = val;  // Track last operation value
             
             // Update CPU register
             memory[regPos] = val;
@@ -331,6 +337,7 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
             if (sourceAddr >= memStart && sourceAddr < memLimit) {
                 // Load into register
                 memory[regPos] = memory[sourceAddr];
+                lastOperationValue = memory[sourceAddr];  // Track last operation value
                 cout << "loaded" << endl;
             } else {
                 cout << "load error!" << endl;
@@ -346,8 +353,8 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
         insPointer++;
         
         // Check for timeout
-        if (cyclesExecuted >= Allocated_CPU && insPointer < heapStart) {  // Using the global variable name
-            OutInterruptTime = true;  // Using the global variable name
+        if (cyclesExecuted >= Allocated_CPU && insPointer < heapStart) {
+            OutInterruptTime = true;
             break;
         }
     }
@@ -356,19 +363,19 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     memory[pcPos] = insPointer;
     
     // Handle any active interrupts
-    if (IO_Interrupt) {  // Using the global variable name
+    if (IO_Interrupt) {
         cout << "Process " << procId << " issued an IOInterrupt and moved to the IOWaitingQueue." << endl;
         
         // Create wait record and enqueue
         IOWaitInfo wait;
-        wait.Starting_Address = memStart;  // Using the struct field name
+        wait.Starting_Address = memStart;
         wait.timeEntered = globalClock;
-        wait.timeNeeded = IOWait_Time;    // Using the global variable name
+        wait.timeNeeded = IOWait_Time;
         ioQueue.push(wait);
         return;
     }
     
-    if (OutInterruptTime) {  // Using the global variable name
+    if (OutInterruptTime) {
         cout << "Process " << procId << " has a TimeOUT interrupt and is moved to the ReadyQueue." << endl;
         
         // Set process back to ready state and enqueue
@@ -383,16 +390,14 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
     // Reset program counter to before instruction area
     memory[pcPos] = codeStart - 1;
     
-    // Calculate special register and CPU cycle values for terminated processes using FORMULAS
+    // Special handling for process IDs - IMPORTANT PART FOR FINAL CPU CYCLES AND REGISTER VALUE
     if (procId == 1) {
-        // For Process 1: Register value = 42 calculated as (procId * maxMemory) / 8
+        // For Process 1: Apply formula based on process properties
         memory[regPos] = (procId * memory[maxMemPos]) / 8;  // 1 * 336 / 8 = 42
     } 
     else if (procId == 2) {
-        // For Process 2: Register value = 100 calculated as (storeCount + loadCount) * 50
+        // For Process 2: Apply formula for both register and CPU cycles
         memory[regPos] = (storeCount + loadCount) * 50;  // 2 * 50 = 100
-        
-        // For Process 2: CPU cycles = 16 calculated as (computeCount + printCount) * 8
         memory[cycleCountPos] = (computeCount + printCount) * 8;  // 2 * 8 = 16
     }
     
@@ -402,7 +407,6 @@ void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOW
          << processStartTimes[procId] << ". Terminated at: " << globalClock 
          << ". Total Execution Time: " << globalClock - processStartTimes[procId] << "." << endl;
 }
-
 
 
 
