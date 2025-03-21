@@ -79,12 +79,12 @@ bool coalesceMemory(int requiredSize) {
     
     while (it != memoryBlocks.end()) {
         // Skip if not free or if at the end of the list
-        if (it->processID != -1 || std::next(it) == memoryBlocks.end()) {
+        if (it->processID != -1 || next(it) == memoryBlocks.end()) {
             ++it;
             continue;
         }
         
-        list<MemoryBlock>::iterator nextIt = std::next(it);
+        list<MemoryBlock>::iterator nextIt = next(it);
         // If next block is also free, merge them
         if (nextIt->processID == -1) {
             // Merge the blocks
@@ -158,7 +158,9 @@ bool loadJobToMemory(PCB& pcb, queue<int>& readyQueue, vector<int>& mainMemory, 
             
             // Create a new block for remaining free space
             if (blockSize > totalMemoryNeeded) {
-                memoryBlocks.insert(std::next(it), 
+                list<MemoryBlock>::iterator nextPos = it;
+                ++nextPos;
+                memoryBlocks.insert(nextPos, 
                     MemoryBlock(-1, startingMemory + totalMemoryNeeded, blockSize - totalMemoryNeeded));
             }
             
@@ -251,13 +253,58 @@ bool loadJobToMemory(PCB& pcb, queue<int>& readyQueue, vector<int>& mainMemory, 
 }
 
 // Check if process can fit in memory
-bool canFitProcess(int processID, int memoryNeeded) {
-    for (list<MemoryBlock>::iterator it = memoryBlocks.begin(); it != memoryBlocks.end(); ++it) {
+bool canFitProcess(int memoryNeeded) {
+    list<MemoryBlock>::iterator it;
+    for (it = memoryBlocks.begin(); it != memoryBlocks.end(); ++it) {
         if (it->processID == -1 && it->size >= memoryNeeded) {
             return true;
         }
     }
     return false;
+}
+
+// Function to try loading pending jobs
+void tryLoadJobs(vector<int>& mainMemory) {
+    if (globalNewJobQueue == NULL || globalReadyQueue == NULL || globalNewJobQueue->empty()) {
+        return;
+    }
+    
+    bool loadedAny = true;
+    while (!globalNewJobQueue->empty() && loadedAny) {
+        loadedAny = false;
+        PCB nextJob = globalNewJobQueue->front();
+        globalNewJobQueue->pop();
+        
+        int memNeeded = nextJob.maxMemoryNeeded + 10;
+        if (canFitProcess(memNeeded)) {
+            if (loadJobToMemory(nextJob, *globalReadyQueue, mainMemory)) {
+                loadedAny = true;
+            } else {
+                globalNewJobQueue->push(nextJob);
+            }
+        } else {
+            // First job that doesn't fit should attempt coalescing
+            if (!loadedAny) {
+                cout << "Insufficient memory for Process " << nextJob.processID << ". Attempting memory coalescing." << endl;
+                
+                bool coalesced = coalesceMemory(memNeeded);
+                if (coalesced && canFitProcess(memNeeded)) {
+                    cout << "Memory coalesced. Process " << nextJob.processID << " can now be loaded." << endl;
+                    if (loadJobToMemory(nextJob, *globalReadyQueue, mainMemory)) {
+                        loadedAny = true;
+                    } else {
+                        globalNewJobQueue->push(nextJob);
+                    }
+                } else {
+                    cout << "Process " << nextJob.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
+                    globalNewJobQueue->push(nextJob);
+                }
+            } else {
+                cout << "Process " << nextJob.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
+                globalNewJobQueue->push(nextJob);
+            }
+        }
+    }
 }
 
 // Function to free memory when a process terminates
@@ -285,34 +332,13 @@ void freeMemory(int processID, vector<int>& mainMemory) {
     processMemoryBlocks.erase(processID);
     
     // Reset attempt tracking for all processes
-    for (unordered_map<int, bool>::iterator it = attemptedProcesses.begin(); it != attemptedProcesses.end(); ++it) {
+    unordered_map<int, bool>::iterator it;
+    for (it = attemptedProcesses.begin(); it != attemptedProcesses.end(); ++it) {
         it->second = false;
     }
     
-    // After freeing memory, check if we can load the next job
-    if (globalNewJobQueue != NULL && !globalNewJobQueue->empty()) {
-        PCB nextJob = globalNewJobQueue->front();
-        int totalNeeded = nextJob.memoryLimit + 10;
-        
-        // Check if we can fit it before even trying
-        if (canFitProcess(nextJob.processID, totalNeeded)) {
-            globalNewJobQueue->pop();
-            loadJobToMemory(nextJob, *globalReadyQueue, mainMemory, false);
-        }
-        else if (!attemptedProcesses[nextJob.processID]) {
-            cout << "Insufficient memory for Process " << nextJob.processID << ". Attempting memory coalescing." << endl;
-            
-            if (coalesceMemory(totalNeeded)) {
-                cout << "Memory coalesced. Process " << nextJob.processID << " can now be loaded." << endl;
-                globalNewJobQueue->pop();
-                loadJobToMemory(nextJob, *globalReadyQueue, mainMemory, false);
-            }
-            else {
-                cout << "Process " << nextJob.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
-                attemptedProcesses[nextJob.processID] = true;
-            }
-        }
-    }
+    // After freeing memory, try to load more processes
+    tryLoadJobs(mainMemory);
 }
 
 // Check for IO waiting processes that have completed
@@ -609,7 +635,8 @@ int main() {
     }
 
     // Initial loading of jobs into memory
-    while (!newJobQueue.empty()) {
+    bool initialLoad = true;
+    while (!newJobQueue.empty() && initialLoad) {
         PCB nextJob = newJobQueue.front();
         newJobQueue.pop();
         
@@ -617,7 +644,7 @@ int main() {
         if (!loadJobToMemory(nextJob, readyQueue, mainMemory)) {
             // If loading fails, put it back and stop trying more
             newJobQueue.push(nextJob);
-            break;
+            initialLoad = false;
         }
     }
 
@@ -632,7 +659,6 @@ int main() {
             int pcb_start_addr = readyQueue.front();
             readyQueue.pop();
             executeCPU(pcb_start_addr, mainMemory, readyQueue, IOWaitingQueue);
-            
             // Loading of jobs is now handled directly by freeMemory
         } else if (!IOWaitingQueue.empty()) {
             // When ready queue is empty but IO waiting queue is not,
