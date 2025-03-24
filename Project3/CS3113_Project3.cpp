@@ -1,14 +1,5 @@
 // ==================================================
-// Process Control Block Simulation Project 3
-// ==================================================
-// ==================================================
-// Process Control Block Simulation Project 3
-// ==================================================
-// ==================================================
-// Process Control Block Simulation Project 3
-// ==================================================
-// ==================================================
-// Process Control Block Simulation Project 3
+// Process Control Block Simulation Project 3  
 // ==================================================
 #include <iostream>
 #include <queue>
