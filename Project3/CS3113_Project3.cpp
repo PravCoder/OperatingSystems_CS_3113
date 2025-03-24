@@ -1,13 +1,19 @@
 // ==================================================
 // Process Control Block Simulation Project 3
 // ==================================================
+// ==================================================
+// Process Control Block Simulation Project 3
+// ==================================================
+// ==================================================
+// Process Control Block Simulation Project 3
+// ==================================================
+// ==================================================
+// Process Control Block Simulation Project 3
+// ==================================================
 #include <iostream>
-#include <vector> 
-#include <string>
-#include <fstream>
-#include <sstream>
 #include <queue>
-#include <limits>
+#include <vector>
+#include <string>
 #include <unordered_map>
 #include <list>
 using namespace std;
@@ -18,662 +24,565 @@ struct MemoryBlock {
     int startAddress;   // Starting address of the block
     int size;           // Size of the block
     
-    MemoryBlock(int pid, int start, int sz) : 
-        processID(pid), startAddress(start), size(sz) {}
+    // Constructor for easier initialization
+    MemoryBlock(int id, int start, int sz) : 
+        processID(id), startAddress(start), size(sz) {}
 };
 
-struct PCB
-{
-    int processID;       // identifier of process
-    int state;           // 1="new", 2="ready", 3="run", 4="terminated"
-    int programCounter;  // index of next instruction to be executed, in logical memory
-    int instructionBase; // starting address of instructions for this process
-    int dataBase;        // address where the data for the instructions starts in logical memory
-    int memoryLimit;     // total size of logical memory allocated to the process    
-    int cpuCyclesUsed;   // number of cpu cycles process as consumed so far
-    int registerValue;   // value of cpu register associated with process
-    int maxMemoryNeeded; // max logical memory required by process as defined in input file
-    int mainMemoryBase;  // starting address in main memory where process, PCB+logical_memory is loaded.  
-
-    vector<vector<int> > instructions; // each arr is a instruction, each element in vector is data associated with instruction
-    
-    // Constructor to initialize values - match working version exactly
-    PCB() : programCounter(0), cpuCyclesUsed(0), registerValue(0) {}
-};
-
-// Global variables for timing and process management
-int cpuAllocated;         // Maximum CPU time before timeout
-int globalClock = 0;      // Global system clock
-int contextSwitchTime;    // Time required for context switching
-int IOWaitTime = 0;       // Time required for IO operations
-bool timeOutInterrupt = false;  // Flag for timeout
-bool IOInterrupt = false;      // Flag for IO interrupts
-
-// Memory management linked list
-list<MemoryBlock> memoryBlocks;
-
-// Map to track process execution times
-unordered_map<int, int> processStartTimes;
-
-// Map to track memory blocks allocated to processes
-unordered_map<int, list<MemoryBlock>::iterator> processMemoryBlocks;
-
-// Structure to hold IO waiting processes [startAddress, timeEntered, timeNeeded]
-struct IOWaitInfo {
-    int startAddress;
-    int timeEntered;
-    int timeNeeded;
-};
-
-// Track attempt counts to prevent excessive loading attempts
-unordered_map<int, bool> attemptedProcesses;
-
-// Global queues for the program
-queue<PCB>* globalNewJobQueue = NULL;
-queue<int>* globalReadyQueue = NULL;
-
-// Function to coalesce adjacent free memory blocks
-bool coalesceMemory(int requiredSize) {
-    bool coalesced = false;
-    list<MemoryBlock>::iterator it = memoryBlocks.begin();
-    
-    while (it != memoryBlocks.end()) {
-        // Skip if not free or if at the end of the list
-        if (it->processID != -1 || next(it) == memoryBlocks.end()) {
-            ++it;
-            continue;
-        }
-        
-        list<MemoryBlock>::iterator nextIt = next(it);
-        // If next block is also free, merge them
-        if (nextIt->processID == -1) {
-            // Merge the blocks
-            it->size += nextIt->size;
-            memoryBlocks.erase(nextIt);
-            coalesced = true;
-            
-            // Don't increment iterator here, try to merge more blocks
-        } else {
-            ++it;
-        }
-    }
-    
-    // Check if any free block is large enough after coalescing
-    list<MemoryBlock>::const_iterator blockIt;
-    for (blockIt = memoryBlocks.begin(); blockIt != memoryBlocks.end(); ++blockIt) {
-        if (blockIt->processID == -1 && blockIt->size >= requiredSize) {
-            return true;
-        }
-    }
-    
-    return false; // Return false if no suitable block found
-}
-
-void printPCBFromMainMemory(int startAddress, vector<int>& mainMemory) {
-    // Determine the state string
+// PCB structure
+struct PCB {
+    int processID;
     string state;
-    int stateInt = mainMemory[startAddress + 1];
-    if (stateInt == 1) {
-        state = "NEW";
-    } else if (stateInt == 2) {
-        state = "READY";
-    } else if (stateInt == 3) {
-        state = "RUNNING";
-    } else {
-        state = "TERMINATED";
-    }
-
-    // Print PCB fields
-    cout << "Process ID: " << mainMemory[startAddress] << "\n";
-    cout << "State: " << state << "\n";
-    cout << "Program Counter: " << mainMemory[startAddress + 2] << "\n";
-    cout << "Instruction Base: " << mainMemory[startAddress + 3] << "\n";
-    cout << "Data Base: " << mainMemory[startAddress + 4] << "\n";
-    cout << "Memory Limit: " << mainMemory[startAddress + 5] << "\n";
-    cout << "CPU Cycles Used: " << mainMemory[startAddress + 6] << "\n";
-    cout << "Register Value: " << mainMemory[startAddress + 7] << "\n";
-    cout << "Max Memory Needed: " << mainMemory[startAddress + 8] << "\n";
-    cout << "Main Memory Base: " << mainMemory[startAddress + 9] << "\n";
+    int programCounter;
+    int instructionBase;
+    int dataBase;
+    int memoryLimit;
+    int cpuCyclesUsed;
+    int registerValue;
+    int maxMemoryNeeded;
+    int mainMemoryBase;
     
-    // Calculate total CPU cycles consumed
-    cout << "Total CPU Cycles Consumed: " << globalClock - processStartTimes[mainMemory[startAddress]] << "\n";
+    // Constructor with default initialization
+    PCB() : programCounter(0), cpuCyclesUsed(0), registerValue(0), state("NEW") {}
+};
+
+// Custom structure for IOWaitingQueue items
+struct IOWaitQueueItem {
+    PCB process;
+    int startAddress;
+    int waitTime;
+    int timeEnteredIO;
+    
+    // Constructor for easier initialization
+    IOWaitQueueItem(PCB p, int start, int wait, int time) :
+        process(p), startAddress(start), waitTime(wait), timeEnteredIO(time) {}
+};
+
+// Maps to store process data
+unordered_map<int, int> opcodeParams; // Maps opcode to number of parameters
+unordered_map<string, int> stateEncoding; // Maps state string to numeric code
+unordered_map<int, vector<vector<int> > > processInstructions; // Stores instruction data for each process
+unordered_map<int, int> processStartTimes; // Records when each process first enters running state
+unordered_map<int, int> paramOffsets; // Tracks current parameter offset for each process
+
+// Global variables
+int globalClock = 0;
+bool timeoutOccurred = false;
+bool memoryFreed = false;
+int contextSwitchTime, CPUAllocated;
+
+// Initialize opcode parameter mappings
+void initOpcodeParams() {
+    opcodeParams[1] = 2; // Compute: iterations, cycles
+    opcodeParams[2] = 1; // Print: cycles
+    opcodeParams[3] = 2; // Store: value, address
+    opcodeParams[4] = 1; // Load: address
 }
 
-// Function to load a single job into memory
-bool loadJobToMemory(PCB& pcb, queue<int>& readyQueue, vector<int>& mainMemory, bool attemptCoalesce = true) {
-    // Calculate total memory needed (PCB metadata + instructions + data)
-    int totalMemoryNeeded = pcb.memoryLimit + 10; // +10 for PCB metadata
-    
-    // Find a free memory block large enough
-    list<MemoryBlock>::iterator it = memoryBlocks.begin();
-    while (it != memoryBlocks.end()) {
-        if (it->processID == -1 && it->size >= totalMemoryNeeded) {
-            // Found a block, allocate memory
-            int startingMemory = it->startAddress;
-            int blockSize = it->size;
-            
-            // Update memory block
-            it->processID = pcb.processID;
-            it->size = totalMemoryNeeded;
-            
-            // Create a new block for remaining free space
-            if (blockSize > totalMemoryNeeded) {
-                list<MemoryBlock>::iterator nextPos = it;
-                ++nextPos;
-                memoryBlocks.insert(nextPos, 
-                    MemoryBlock(-1, startingMemory + totalMemoryNeeded, blockSize - totalMemoryNeeded));
-            }
-            
-            // Keep track of this block
-            processMemoryBlocks[pcb.processID] = it;
-            
-            // Store PCB metadata in main memory
-            int memoryIndex = startingMemory;
-            mainMemory[memoryIndex++] = pcb.processID;
-            mainMemory[memoryIndex++] = 1;  // State is NEW (1)
-            mainMemory[memoryIndex++] = pcb.programCounter;
-            mainMemory[memoryIndex++] = startingMemory + 10;  // instructionBase starts after 10 PCB fields
-            
-            // We'll update dataBase later after loading instructions
-            int dataBaseIndex = memoryIndex;  // Save position to update later
-            memoryIndex++;  // Skip over dataBase field for now
-            
-            mainMemory[memoryIndex++] = pcb.memoryLimit;
-            mainMemory[memoryIndex++] = pcb.cpuCyclesUsed;
-            mainMemory[memoryIndex++] = pcb.registerValue;
-            mainMemory[memoryIndex++] = pcb.maxMemoryNeeded;
-            mainMemory[memoryIndex++] = startingMemory;  // mainMemoryBase points to start of PCB
-            
-            // Create queue for data values
-            queue<int> dataQueue;
-            
-            // Load instructions to memory and collect data values
-            int numberOfInstructions = 0;
-            for (int i = 0; i < pcb.instructions.size(); i++) {
-                vector<int> instruction = pcb.instructions[i];
-                int opcode = instruction[0];
-                
-                // Store the opcode
-                mainMemory[memoryIndex++] = opcode;
-                numberOfInstructions++;
-                
-                // Process data based on opcode
-                if (opcode == 1) {  // compute
-                    dataQueue.push(instruction[1]);  // iterations
-                    dataQueue.push(instruction[2]);  // cycles
-                }
-                else if (opcode == 2) {  // print
-                    dataQueue.push(instruction[1]);  // cycles
-                }
-                else if (opcode == 3) {  // store
-                    dataQueue.push(instruction[1]);  // value
-                    dataQueue.push(instruction[2]);  // address
-                }
-                else if (opcode == 4) {  // load
-                    dataQueue.push(instruction[1]);  // address
-                }
-            }
-            
-            // Now update the dataBase field with current memory position
-            mainMemory[dataBaseIndex] = memoryIndex;
-            
-            // Load data values to memory
-            while (!dataQueue.empty()) {
-                mainMemory[memoryIndex++] = dataQueue.front();
-                dataQueue.pop();
-            }
-            
-            // Add starting address to ready queue
-            readyQueue.push(startingMemory);
-            
-            cout << "Process " << pcb.processID << " loaded into memory at address " 
-                 << startingMemory << " with size " << totalMemoryNeeded << "." << endl;
-            
-            // Reset attempt tracking for this process
-            attemptedProcesses[pcb.processID] = false;
-            
-            return true;
-        }
-        ++it;
-    }
-    
-    // If no suitable block found and coalescing is allowed
-    if (attemptCoalesce && !attemptedProcesses[pcb.processID]) {
-        attemptedProcesses[pcb.processID] = true;
-        cout << "Insufficient memory for Process " << pcb.processID << ". Attempting memory coalescing." << endl;
-        
-        if (coalesceMemory(totalMemoryNeeded)) {
-            cout << "Memory coalesced. Process " << pcb.processID << " can now be loaded." << endl;
-            return loadJobToMemory(pcb, readyQueue, mainMemory, false); // Try again after coalescing
-        }
-        cout << "Process " << pcb.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
-    }
-    
-    return false;
+// Initialize state encoding mappings
+void initStateEncoding() {
+    stateEncoding["NEW"] = 1;
+    stateEncoding["READY"] = 2;
+    stateEncoding["RUNNING"] = 3;
+    stateEncoding["TERMINATED"] = 4;
+    stateEncoding["IOWAITING"] = 5;
 }
 
-// Check if process can fit in memory
-bool canFitProcess(int memoryNeeded) {
-    list<MemoryBlock>::iterator it;
-    for (it = memoryBlocks.begin(); it != memoryBlocks.end(); ++it) {
-        if (it->processID == -1 && it->size >= memoryNeeded) {
-            return true;
+// Allocate memory for a process
+int allocateMemory(list<MemoryBlock>& memoryBlocks, int processID, int size) {
+    list<MemoryBlock>::iterator current = memoryBlocks.begin();
+    list<MemoryBlock>::iterator prev = memoryBlocks.end();
+
+    while (current != memoryBlocks.end()) {
+        if (current->processID == -1 && current->size >= size) {
+            // Found a free block big enough to allocate
+            int allocatedAddress = current->startAddress;
+
+            // If the block is exactly the right size, allocate it
+            if (current->size == size) {
+                current->processID = processID;
+            }
+            else { // Split the block into allocated and free parts
+                list<MemoryBlock>::iterator newBlock = memoryBlocks.insert(current, 
+                                                        MemoryBlock(processID, current->startAddress, size));
+
+                current->startAddress += size;
+                current->size -= size;
+                return allocatedAddress;
+            }
+
+            return allocatedAddress;
         }
+
+        prev = current;
+        ++current;
     }
-    return false;
+
+    return -1; // No block big enough found
 }
 
-// Function to try loading pending jobs
-void tryLoadJobs(vector<int>& mainMemory) {
-    if (globalNewJobQueue == NULL || globalReadyQueue == NULL || globalNewJobQueue->empty()) {
-        return;
-    }
-    
-    bool loadedAny = true;
-    while (!globalNewJobQueue->empty() && loadedAny) {
-        loadedAny = false;
-        PCB nextJob = globalNewJobQueue->front();
-        globalNewJobQueue->pop();
-        
-        int memNeeded = nextJob.maxMemoryNeeded + 10;
-        if (canFitProcess(memNeeded)) {
-            if (loadJobToMemory(nextJob, *globalReadyQueue, mainMemory)) {
-                loadedAny = true;
-            } else {
-                globalNewJobQueue->push(nextJob);
+// Free memory used by a process
+void freeMemory(list<MemoryBlock>& memoryBlocks, vector<int>& mainMemory, int processID) {
+    list<MemoryBlock>::iterator current = memoryBlocks.begin();
+
+    // Find the memory block with this processID
+    while (current != memoryBlocks.end()) {
+        if (current->processID == processID) {
+            // Clear memory by setting to -1
+            for (int i = current->startAddress; i < current->startAddress + current->size; i++) {
+                mainMemory[i] = -1;
             }
-        } else {
-            // First job that doesn't fit should attempt coalescing
-            if (!loadedAny) {
-                cout << "Insufficient memory for Process " << nextJob.processID << ". Attempting memory coalescing." << endl;
-                
-                bool coalesced = coalesceMemory(memNeeded);
-                if (coalesced && canFitProcess(memNeeded)) {
-                    cout << "Memory coalesced. Process " << nextJob.processID << " can now be loaded." << endl;
-                    if (loadJobToMemory(nextJob, *globalReadyQueue, mainMemory)) {
-                        loadedAny = true;
-                    } else {
-                        globalNewJobQueue->push(nextJob);
-                    }
-                } else {
-                    cout << "Process " << nextJob.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
-                    globalNewJobQueue->push(nextJob);
-                }
-            } else {
-                cout << "Process " << nextJob.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
-                globalNewJobQueue->push(nextJob);
-            }
+
+            // Mark the block as free
+            current->processID = -1;
+            return;
         }
+
+        ++current;
     }
 }
 
-// Function to free memory when a process terminates
-void freeMemory(int processID, vector<int>& mainMemory) {
-    if (processMemoryBlocks.find(processID) == processMemoryBlocks.end()) {
-        return; // Process not found
-    }
-    
-    list<MemoryBlock>::iterator blockIt = processMemoryBlocks[processID];
-    int startAddress = blockIt->startAddress;
-    int size = blockIt->size;
-    
-    // Mark block as free
-    blockIt->processID = -1;
-    
-    // Clear memory by setting it to -1
-    for (int i = startAddress; i < startAddress + size; ++i) {
-        mainMemory[i] = -1;
-    }
-    
-    cout << "Process " << processID << " terminated and released memory from " 
-         << startAddress << " to " << (startAddress + size - 1) << "." << endl;
-    
-    // Remove from tracking map
-    processMemoryBlocks.erase(processID);
-    
-    // Reset attempt tracking for all processes
-    unordered_map<int, bool>::iterator it;
-    for (it = attemptedProcesses.begin(); it != attemptedProcesses.end(); ++it) {
-        it->second = false;
-    }
-    
-    // After freeing memory, try to load more processes
-    tryLoadJobs(mainMemory);
-}
+// Coalesce adjacent free memory blocks
+void coalesceMemory(list<MemoryBlock>& memoryBlocks) {
+    list<MemoryBlock>::iterator current = memoryBlocks.begin();
 
-// Check for IO waiting processes that have completed
-void checkIOWaitingQueue(queue<int>& readyQueue, vector<int>& mainMemory, queue<IOWaitInfo>& IOWaitingQueue) {
-    int size = IOWaitingQueue.size();
-    for (int i = 0; i < size; i++) {
-        IOWaitInfo waitInfo = IOWaitingQueue.front();
-        IOWaitingQueue.pop();
-        
-        // Get process ID from the start address
-        int processID = mainMemory[waitInfo.startAddress];
-        
-        // Check if IO wait time has elapsed
-        if (globalClock - waitInfo.timeEntered >= waitInfo.timeNeeded) {
-            readyQueue.push(waitInfo.startAddress);
-            cout << "print" << endl;
-            cout << "Process " << processID << " completed I/O and is moved to the ReadyQueue." << endl;
-        } else {
-            // Put back in queue if still waiting
-            IOWaitingQueue.push(waitInfo);
-        }
-    }
-}
+    // Merge adjacent free blocks
+    while (current != memoryBlocks.end() && current != --memoryBlocks.end()) {
+        list<MemoryBlock>::iterator next = current;
+        ++next;
 
-void executeCPU(int memStart, vector<int>& memory, queue<int>& readyQ, queue<IOWaitInfo>& ioQueue) {
-    // Clear existing flags
-    timeOutInterrupt = false;
-    IOInterrupt = false;
-    
-    // Read control block data - using completely different variable names
-    const int procId = memory[memStart];
-    const int statePos = memStart + 1;
-    const int pcPos = memStart + 2;
-    const int codeStart = memory[memStart + 3];
-    const int heapStart = memory[memStart + 4];
-    const int memLimitPos = memStart + 5;
-    const int cycleCountPos = memStart + 6;
-    const int regPos = memStart + 7;
-    
-    // Increment system timer for context switch overhead
-    globalClock += contextSwitchTime;
-    
-    // Use separate variables to track execution state
-    int dataPos;        // Position in data section
-    int insPointer;     // Current instruction position
-    int cyclesExecuted = 0; // Cycles used in this quantum
-    
-    // Initialize execution state based on process status
-    if (memory[statePos] == 1) {  // First run (NEW)
-        insPointer = codeStart;
-        processStartTimes[procId] = globalClock;
-        dataPos = heapStart - 1;  // Will be incremented before access
-    } else {
-        // Resume from saved state
-        insPointer = memory[pcPos];
-        
-        // Recalculate data position based on completed instructions
-        dataPos = heapStart - 1;
-        for (int addr = codeStart; addr < memory[pcPos]; addr++) {
-            // Add appropriate data slots based on instruction type
-            switch (memory[addr]) {
-                case 1: // compute - needs 2 data items
-                case 3: // store - needs 2 data items
-                    dataPos += 2;
-                    break;
-                case 2: // print - needs 1 data item
-                case 4: // load - needs 1 data item
-                    dataPos += 1;
-                    break;
-            }
-        }
-    }
-    
-    // Set process to running state
-    memory[statePos] = 3;
-    cout << "Process " << procId << " has moved to Running." << endl;
-    
-    // Main execution loop
-    while (insPointer < heapStart && cyclesExecuted < cpuAllocated) {
-        // Get current instruction
-        int opcode = memory[insPointer];
-        
-        // Execute appropriate instruction based on opcode
-        if (opcode == 1) {  // COMPUTE
-            cout << "compute" << endl;
-            
-            // Skip iterations parameter, go directly to cycles
-            dataPos += 2;
-            
-            // Get CPU cycles from data
-            int cyclesToAdd = memory[dataPos];
-            
-            // Update timers and counters
-            cyclesExecuted += cyclesToAdd;
-            memory[cycleCountPos] += cyclesToAdd;
-            globalClock += cyclesToAdd;
-        }
-        else if (opcode == 2) {  // PRINT
-            // Move to cycles parameter
-            dataPos++;
-            
-            // Get cycles needed for I/O
-            int ioCycles = memory[dataPos];
-            
-            // Update accounting
-            cyclesExecuted += ioCycles;
-            memory[cycleCountPos] += ioCycles;
-            
-            // Set up I/O wait
-            IOWaitTime = ioCycles;
-            IOInterrupt = true;
-            
-            // Increment instruction pointer before exit
-            insPointer++;
+        if (next == memoryBlocks.end()) {
             break;
         }
-        else if (opcode == 3) {  // STORE
-            // Get value to store
-            dataPos++;
-            int val = memory[dataPos];
-            
-            // Update CPU register
-            memory[regPos] = val;
-            
-            // Get target address
-            dataPos++;
-            int targetAddr = memory[dataPos] + memStart;
-            
-            // Verify memory bounds
-            int memLimit = memStart + memory[memLimitPos];
-            if (targetAddr >= memStart && targetAddr < memLimit && targetAddr >= heapStart) {
-                memory[targetAddr] = val;
-                cout << "stored" << endl;
-            } else {
-                cout << "store error!" << endl;
-            }
-            
-            // Update cycle accounting
-            globalClock++;
-            cyclesExecuted++;
-            memory[cycleCountPos]++;
-        }
-        else if (opcode == 4) {  // LOAD
-            // Get source address
-            dataPos++;
-            int sourceAddr = memory[dataPos] + memStart;
-            
-            // Verify memory bounds
-            int memLimit = memStart + memory[memLimitPos];
-            if (sourceAddr >= memStart && sourceAddr < memLimit) {
-                // Load into register
-                memory[regPos] = memory[sourceAddr];
-                cout << "loaded" << endl;
-            } else {
-                cout << "load error!" << endl;
-            }
-            
-            // Update cycle accounting
-            globalClock++;
-            cyclesExecuted++;
-            memory[cycleCountPos]++;
+
+        if (current->processID == -1 && next->processID == -1) {
+            // Merge these two blocks
+            current->size += next->size;
+            memoryBlocks.erase(next);
+            // Continue without advancing iterator to check for more merges
         }
         else {
-            cout << "Unknown instruction: " << opcode << endl;
+            // Move to next block
+            ++current;
         }
-        
-        // Move to next instruction
-        insPointer++;
-        
-        // Check for timeout
-        if (cyclesExecuted >= cpuAllocated && insPointer < heapStart) {
-            timeOutInterrupt = true;
+    }
+}
+
+// Load jobs from NewJobQueue into memory and add to ReadyQueue
+void loadJobsToMemory(queue<PCB>& newJobQueue, queue<int>& readyQueue,
+    vector<int>& mainMemory, list<MemoryBlock>& memoryBlocks) {
+    
+    int newJobQueueSize = newJobQueue.size();
+    queue<PCB> tempQueue; // For jobs that can't be loaded this cycle
+
+    for (int i = 0; i < newJobQueueSize; i++) {
+        PCB process = newJobQueue.front();
+        newJobQueue.pop();
+
+        bool coalescedForThisProcess = false;
+        int totalMemoryNeeded = process.maxMemoryNeeded + 10; // +10 for PCB metadata
+        int allocatedAddress = allocateMemory(memoryBlocks, process.processID, totalMemoryNeeded);
+
+        // If allocation failed, try coalescing memory
+        if (allocatedAddress == -1) {
+            cout << "Insufficient memory for Process " << process.processID << ". Attempting memory coalescing." << endl;
+            coalesceMemory(memoryBlocks);
+
+            // Try allocating again
+            allocatedAddress = allocateMemory(memoryBlocks, process.processID, totalMemoryNeeded);
+            coalescedForThisProcess = (allocatedAddress != -1);
+
+            // If still no memory, put back in queue
+            if (allocatedAddress == -1) {
+                cout << "Process " << process.processID << " waiting in NewJobQueue due to insufficient memory." << endl;
+
+                // Return this process to the queue
+                tempQueue.push(process);
+
+                // Also return any remaining processes
+                for (int j = i + 1; j < newJobQueueSize; j++) {
+                    tempQueue.push(newJobQueue.front());
+                    newJobQueue.pop();
+                }
+
+                break; // Exit the loop
+            }
+        }
+
+        // If memory allocation succeeded
+        if (allocatedAddress != -1) {
+            if (coalescedForThisProcess) {
+                cout << "Memory coalesced. Process " << process.processID << " can now be loaded." << endl;
+            }
+
+            // Update process metadata
+            process.mainMemoryBase = allocatedAddress;
+            process.instructionBase = allocatedAddress + 10; // PCB takes 10 slots
+            process.dataBase = process.instructionBase + processInstructions[process.processID].size();
+
+            // Store PCB in main memory
+            mainMemory[allocatedAddress + 0] = process.processID;
+            mainMemory[allocatedAddress + 1] = stateEncoding[process.state];
+            mainMemory[allocatedAddress + 2] = process.programCounter;
+            mainMemory[allocatedAddress + 3] = process.instructionBase;
+            mainMemory[allocatedAddress + 4] = process.dataBase;
+            mainMemory[allocatedAddress + 5] = process.memoryLimit;
+            mainMemory[allocatedAddress + 6] = process.cpuCyclesUsed;
+            mainMemory[allocatedAddress + 7] = process.registerValue;
+            mainMemory[allocatedAddress + 8] = process.maxMemoryNeeded;
+            mainMemory[allocatedAddress + 9] = process.mainMemoryBase;
+
+            // Store opcodes first
+            vector<vector<int> > instructions = processInstructions[process.processID];
+            int writeIndex = process.instructionBase;
+
+            for (size_t j = 0; j < instructions.size(); j++) {
+                const vector<int>& instr = instructions[j];
+                mainMemory[writeIndex++] = instr[0]; // Store opcode
+            }
+
+            // Then store parameters
+            for (size_t j = 0; j < instructions.size(); j++) {
+                const vector<int>& instr = instructions[j];
+                for (size_t k = 1; k < instr.size(); k++) {
+                    mainMemory[writeIndex++] = instr[k]; // Store parameter
+                }
+            }
+
+            cout << "Process " << process.processID << " loaded into memory at address "
+                 << allocatedAddress << " with size " << totalMemoryNeeded << "." << endl;
+
+            // Add to ready queue
+            readyQueue.push(process.mainMemoryBase);
+        }
+    }
+
+    // Return unloaded processes to newJobQueue
+    while (!tempQueue.empty()) {
+        newJobQueue.push(tempQueue.front());
+        tempQueue.pop();
+    }
+}
+
+// Check IO waiting queue for completed operations
+void checkIOWaitingQueue(queue<int>& readyQueue, vector<int>& mainMemory,
+    queue<IOWaitQueueItem>& IOWaitingQueue) {
+    
+    int size = IOWaitingQueue.size();
+    for (int i = 0; i < size; i++) {
+        IOWaitQueueItem item = IOWaitingQueue.front();
+        IOWaitingQueue.pop();
+
+        PCB process = item.process;
+        int startAddress = item.startAddress;
+        int waitTime = item.waitTime;
+        int timeEnteredIO = item.timeEnteredIO;
+
+        // Check if wait time has elapsed
+        if (globalClock - timeEnteredIO >= waitTime) {
+            int paramOffset = paramOffsets[process.processID];
+            int cycles = mainMemory[process.dataBase + paramOffset];
+
+            // Execute print operation
+            cout << "print" << endl;
+            process.cpuCyclesUsed += cycles;
+            mainMemory[startAddress + 6] = process.cpuCyclesUsed;
+
+            // Update program counter and parameter offset
+            process.programCounter++;
+            mainMemory[startAddress + 2] = process.programCounter;
+            paramOffset += opcodeParams[2]; // 2 is code for print
+            paramOffsets[process.processID] = paramOffset;
+
+            // Update state to READY
+            process.state = "READY";
+            mainMemory[startAddress + 1] = stateEncoding[process.state];
+
+            cout << "Process " << process.processID << " completed I/O and is moved to the ReadyQueue." << endl;
+            readyQueue.push(startAddress);
+        }
+        else {
+            // Not enough time elapsed, put back in queue
+            IOWaitingQueue.push(item);
+        }
+    }
+}
+
+// Execute a process on the CPU
+void executeCPU(int startAddress, vector<int>& mainMemory, list<MemoryBlock>& memoryBlocks,
+    queue<PCB>& newJobQueue, queue<int>& readyQueue, queue<IOWaitQueueItem>& IOWaitingQueue) {
+    
+    // Extract PCB from memory
+    PCB process;
+    int cpuCyclesThisRun = 0;
+
+    process.processID = mainMemory[startAddress];
+    process.state = "READY";
+    mainMemory[startAddress + 1] = stateEncoding[process.state];
+    process.programCounter = mainMemory[startAddress + 2];
+    process.instructionBase = mainMemory[startAddress + 3];
+    process.dataBase = mainMemory[startAddress + 4];
+    process.memoryLimit = mainMemory[startAddress + 5];
+    process.cpuCyclesUsed = mainMemory[startAddress + 6];
+    process.registerValue = mainMemory[startAddress + 7];
+    process.maxMemoryNeeded = mainMemory[startAddress + 8];
+    process.mainMemoryBase = mainMemory[startAddress + 9];
+
+    // Add context switch time
+    globalClock += contextSwitchTime;
+
+    // First time running this process?
+    if (process.programCounter == 0) {
+        process.programCounter = process.instructionBase;
+        paramOffsets[process.processID] = 0;
+        processStartTimes[process.processID] = globalClock;
+    }
+
+    // Set to running state
+    process.state = "RUNNING";
+    mainMemory[startAddress + 1] = stateEncoding[process.state];
+    mainMemory[startAddress + 2] = process.programCounter;
+    cout << "Process " << process.processID << " has moved to Running." << endl;
+
+    int paramOffset = paramOffsets[process.processID];
+
+    // Execute process instructions
+    while (process.programCounter < process.dataBase && cpuCyclesThisRun < CPUAllocated) {
+        int opcode = mainMemory[process.programCounter];
+
+        switch (opcode) {
+        case 1: // Compute
+        {
+            int iterations = mainMemory[process.dataBase + paramOffset];
+            int cycles = mainMemory[process.dataBase + paramOffset + 1];
+            cout << "compute" << endl;
+            
+            process.cpuCyclesUsed += cycles;
+            mainMemory[startAddress + 6] = process.cpuCyclesUsed;
+            cpuCyclesThisRun += cycles;
+            globalClock += cycles;
+            
+            paramOffset += 2; // Compute has 2 parameters
             break;
         }
-    }
-    
-    // Save execution state
-    memory[pcPos] = insPointer;
-    
-    // Handle any active interrupts
-    if (IOInterrupt) {
-        cout << "Process " << procId << " issued an IOInterrupt and moved to the IOWaitingQueue." << endl;
+        case 2: // Print (I/O)
+        {
+            int cycles = mainMemory[process.dataBase + paramOffset];
+            cout << "Process " << process.processID << " issued an IOInterrupt and moved to the IOWaitingQueue." << endl;
+            
+            // Move to IO waiting queue
+            IOWaitingQueue.push(IOWaitQueueItem(process, startAddress, cycles, globalClock));
+            
+            // Update state to IOWAITING
+            process.state = "IOWAITING";
+            mainMemory[startAddress + 1] = stateEncoding[process.state];
+            
+            // Save parameter offset
+            paramOffsets[process.processID] = paramOffset;
+            
+            return; // Exit CPU to let other processes run
+        }
+        case 3: // Store
+        {
+            int value = mainMemory[process.dataBase + paramOffset];
+            int address = mainMemory[process.dataBase + paramOffset + 1];
+
+            // Update register
+            process.registerValue = value;
+            mainMemory[startAddress + 7] = process.registerValue;
+
+            // Store only if address is within memory limit
+            if (address < process.memoryLimit) {
+                mainMemory[process.mainMemoryBase + address] = process.registerValue;
+                cout << "stored" << endl;
+            }
+            else {
+                cout << "store error!" << endl;
+            }
+
+            process.cpuCyclesUsed++;
+            mainMemory[startAddress + 6] = process.cpuCyclesUsed;
+            cpuCyclesThisRun++;
+            globalClock++;
+            
+            paramOffset += 2; // Store has 2 parameters
+            break;
+        }
+        case 4: // Load
+        {
+            int address = mainMemory[process.dataBase + paramOffset];
+
+            // Load only if address is within memory limit
+            if (address < process.memoryLimit) {
+                process.registerValue = mainMemory[process.mainMemoryBase + address];
+                mainMemory[startAddress + 7] = process.registerValue;
+                cout << "loaded" << endl;
+            }
+            else {
+                cout << "load error!" << endl;
+            }
+
+            process.cpuCyclesUsed++;
+            mainMemory[startAddress + 6] = process.cpuCyclesUsed;
+            cpuCyclesThisRun++;
+            globalClock++;
+            
+            paramOffset += 1; // Load has 1 parameter
+            break;
+        }
+        }
+
+        // Increment program counter for next instruction
+        process.programCounter++;
+        mainMemory[startAddress + 2] = process.programCounter;
         
-        // Create wait record and enqueue
-        IOWaitInfo wait;
-        wait.startAddress = memStart;
-        wait.timeEntered = globalClock;
-        wait.timeNeeded = IOWaitTime;
-        ioQueue.push(wait);
-        return;
+        // Save parameter offset for next time
+        paramOffsets[process.processID] = paramOffset;
+
+        // Check for timeout
+        if (cpuCyclesThisRun >= CPUAllocated && process.programCounter < process.dataBase) {
+            cout << "Process " << process.processID << " has a TimeOUT interrupt and is moved to the ReadyQueue." << endl;
+            process.state = "READY";
+            mainMemory[startAddress + 1] = stateEncoding[process.state];
+            timeoutOccurred = true;
+            readyQueue.push(startAddress);
+            return;
+        }
     }
-    
-    if (timeOutInterrupt) {
-        cout << "Process " << procId << " has a TimeOUT interrupt and is moved to the ReadyQueue." << endl;
-        
-        // Set process back to ready state and enqueue
-        memory[statePos] = 2;
-        readyQ.push(memStart);
-        return;
-    }
-    
-    // Process has completed normally
-    memory[statePos] = 4; // Set state to TERMINATED
-    
-    // Reset program counter to before instruction area (as in reference)
-    memory[pcPos] = codeStart - 1;
-    
-    // Display process completion information
-    printPCBFromMainMemory(memStart, memory);
-    cout << "Process " << procId << " terminated. Entered running state at: " 
-         << processStartTimes[procId] << ". Terminated at: " << globalClock 
-         << ". Total Execution Time: " << globalClock - processStartTimes[procId] << "." << endl;
-    
+
+    // Process has completed all instructions
+    process.programCounter = process.instructionBase - 1; // Reset to before instructionBase
+    process.state = "TERMINATED";
+    mainMemory[startAddress + 2] = process.programCounter;
+    mainMemory[startAddress + 1] = stateEncoding[process.state];
+
+    // Print PCB contents
+    cout << "Process ID: " << process.processID << endl;
+    cout << "State: " << process.state << endl;
+    cout << "Program Counter: " << process.programCounter << endl;
+    cout << "Instruction Base: " << process.instructionBase << endl;
+    cout << "Data Base: " << process.dataBase << endl;
+    cout << "Memory Limit: " << process.memoryLimit << endl;
+    cout << "CPU Cycles Used: " << process.cpuCyclesUsed << endl;
+    cout << "Register Value: " << process.registerValue << endl;
+    cout << "Max Memory Needed: " << process.maxMemoryNeeded << endl;
+    cout << "Main Memory Base: " << process.mainMemoryBase << endl;
+    cout << "Total CPU Cycles Consumed: " << (globalClock - processStartTimes[process.processID]) << endl;
+
+    // Output termination message
+    cout << "Process " << process.processID
+         << " terminated. Entered running state at: "
+         << processStartTimes[process.processID]
+         << ". Terminated at: "
+         << globalClock
+         << ". Total Execution Time: "
+         << (globalClock - processStartTimes[process.processID])
+         << "." << endl;
+
     // Free memory
-    freeMemory(procId, memory);
+    int freedStart = process.mainMemoryBase;
+    int freedSize = process.maxMemoryNeeded + 10;
+    freeMemory(memoryBlocks, mainMemory, process.processID);
+    
+    cout << "Process " << process.processID << " terminated and released memory from "
+         << freedStart << " to "
+         << (freedStart + freedSize - 1) << "." << endl;
+         
+    memoryFreed = true;
 }
 
 int main() {
-    // Initialize variables
-    int maxMemory;
-    int num_processes;
-    vector<int> mainMemory;
-    queue<int> readyQueue;
-    queue<PCB> newJobQueue;
-    queue<IOWaitInfo> IOWaitingQueue;
+    // Initialize maps
+    initOpcodeParams();
+    initStateEncoding();
 
-    // Set the global queue pointers
-    globalNewJobQueue = &newJobQueue;
-    globalReadyQueue = &readyQueue;
+    int maxMemory, numProcesses;
+    queue<PCB> newJobQueue;
+    queue<int> readyQueue;
+    queue<IOWaitQueueItem> IOWaitingQueue;
+    vector<int> mainMemory;
+    list<MemoryBlock> memoryBlocks;
 
     // Read input parameters
-    cin >> maxMemory;
-    cin >> cpuAllocated;
-    cin >> contextSwitchTime;
-    cin >> num_processes;
+    cin >> maxMemory >> CPUAllocated >> contextSwitchTime >> numProcesses;
     
-    // Initialize main memory
+    // Initialize main memory with -1
     mainMemory.resize(maxMemory, -1);
     
-    // Initialize memory block list with one free block covering all memory
+    // Initialize memory blocks list with one big free block
     memoryBlocks.push_back(MemoryBlock(-1, 0, maxMemory));
 
-    cin.ignore(numeric_limits<streamsize>::max(), '\n');
-    
-    // Read and parse process input
-    for (int i = 0; i < num_processes; i++) {
-        string line;
-        getline(cin, line);
-        istringstream ss(line);
-
-        int cur_process_id, cur_process_max_memory_needed, cur_process_num_instructions;
-        ss >> cur_process_id >> cur_process_max_memory_needed >> cur_process_num_instructions;
-
+    // Read processes data
+    for (int i = 0; i < numProcesses; i++) {
         PCB process;
-        process.processID = cur_process_id;
-        process.maxMemoryNeeded = cur_process_max_memory_needed;
-        process.memoryLimit = cur_process_max_memory_needed;
-        
-        // Read instruction information
-        for (int j = 0; j < cur_process_num_instructions; j++) {
-            int instruction_opcode;
-            ss >> instruction_opcode;
-            vector<int> cur_instruction;
-            cur_instruction.push_back(instruction_opcode);
+        int numInstructions;
 
-            if (instruction_opcode == 1) { // compute
-                int iterations, cycles;
-                ss >> iterations >> cycles;
-                cur_instruction.push_back(iterations);
-                cur_instruction.push_back(cycles);
-            } 
-            else if (instruction_opcode == 2) {  // print
-                int cycles;
-                ss >> cycles;
-                cur_instruction.push_back(cycles);
-            } 
-            else if (instruction_opcode == 3) {  // store
-                int value, address;
-                ss >> value >> address;
-                cur_instruction.push_back(value);  
-                cur_instruction.push_back(address);
+        cin >> process.processID >> process.maxMemoryNeeded >> numInstructions;
+        process.state = "NEW";
+        process.memoryLimit = process.maxMemoryNeeded;
+
+        // Read and store all instructions for the process
+        vector<vector<int> > instructions;
+        for (int j = 0; j < numInstructions; j++) {
+            vector<int> currentInstruction;
+            int opcode;
+
+            cin >> opcode;
+            currentInstruction.push_back(opcode);
+            int numParams = opcodeParams[opcode];
+
+            for (int k = 0; k < numParams; k++) {
+                int param;
+                cin >> param;
+                currentInstruction.push_back(param);
             }
-            else if (instruction_opcode == 4) {  // load
-                int address;
-                ss >> address;
-                cur_instruction.push_back(address);
-            }
-            process.instructions.push_back(cur_instruction);
+
+            instructions.push_back(currentInstruction);
         }
-        
-        // Add process to new job queue
+
+        processInstructions[process.processID] = instructions;
         newJobQueue.push(process);
-        attemptedProcesses[process.processID] = false;
     }
 
-    // Initial loading of jobs into memory
-    bool initialLoad = true;
-    while (!newJobQueue.empty() && initialLoad) {
-        PCB nextJob = newJobQueue.front();
-        newJobQueue.pop();
-        
-        // Try to load the job
-        if (!loadJobToMemory(nextJob, readyQueue, mainMemory)) {
-            // If loading fails, put it back and stop trying more
-            newJobQueue.push(nextJob);
-            initialLoad = false;
-        }
+    // Load initial jobs into memory
+    loadJobsToMemory(newJobQueue, readyQueue, mainMemory, memoryBlocks);
+
+    // Output initial memory state
+    for (int i = 0; i < maxMemory; i++) {
+        cout << i << " : " << mainMemory[i] << endl;
     }
 
-    // Print the initial state of main memory
-    for (int i = 0; i < mainMemory.size(); i++) {
-        cout << i << " : " << mainMemory[i] << "\n";
-    }
-
-    // Process execution loop
+    // Main execution loop
     while (!readyQueue.empty() || !IOWaitingQueue.empty() || !newJobQueue.empty()) {
         if (!readyQueue.empty()) {
-            int pcb_start_addr = readyQueue.front();
+            // Execute next process from ready queue
+            int startAddress = readyQueue.front();
             readyQueue.pop();
-            executeCPU(pcb_start_addr, mainMemory, readyQueue, IOWaitingQueue);
-            // Loading of jobs is now handled directly by freeMemory
-        } else if (!IOWaitingQueue.empty()) {
-            // When ready queue is empty but IO waiting queue is not,
-            // just advance the clock without extra messaging
-            globalClock += contextSwitchTime;
             
-            // Check for completed IO operations
-            checkIOWaitingQueue(readyQueue, mainMemory, IOWaitingQueue);
-        } else {
-            // No processes in ready queue or IO waiting queue, but there are jobs in new job queue
-            // that can't be loaded yet. Just advance the clock and wait.
+            executeCPU(startAddress, mainMemory, memoryBlocks, newJobQueue, readyQueue, IOWaitingQueue);
+
+            // If timeout occurred, process is already added back to ready queue
+            timeoutOccurred = false;
+            
+            // If memory was freed, try to load more jobs
+            if (memoryFreed) {
+                loadJobsToMemory(newJobQueue, readyQueue, mainMemory, memoryBlocks);
+                memoryFreed = false;
+            }
+        }
+        else if (!IOWaitingQueue.empty()) {
+            // No processes in ready queue, but there are IO waiting processes
             globalClock += contextSwitchTime;
         }
+        else {
+            // Only have new jobs waiting for memory
+            globalClock += contextSwitchTime;
+        }
+
+        // Always check IO waiting queue for completed operations
+        checkIOWaitingQueue(readyQueue, mainMemory, IOWaitingQueue);
     }
-    
+
     // Final context switch
     globalClock += contextSwitchTime;
     cout << "Total CPU time used: " << globalClock << "." << endl;
